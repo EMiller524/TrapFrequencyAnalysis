@@ -12,27 +12,6 @@ import csv
 # Data in the raw data, x, y, z, V, Ex, Ey, Ez
 
 
-def extract_data(file_path, delimiter="\t", header=0):
-    """
-    Extract data from a text file with a specified delimiter and header.
-
-    Parameters:
-    file_path (str): The path to the text file.
-    delimiter (str): The delimiter used in the text file (default is tab).
-    header (int): Row number to use as the column names (default is 0).
-
-    Returns:
-    pd.DataFrame: DataFrame containing the extracted data.
-    """
-    try:
-        df = pd.read_csv(file_path, delimiter=delimiter, header=header)
-        return df
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return None
-    
-
-
 def extract_raw_trap_sim_data(file_path):
     """
     Extract raw data from a text file with the following columns: x, y, z, V, Ex, Ey, Ez.
@@ -43,6 +22,10 @@ def extract_raw_trap_sim_data(file_path):
     Returns:
     pd.DataFrame: DataFrame containing the extracted data.
     """
+    # extract the last bit of the file path to use as the name of the dataframe
+    blade_name = os.path.basename(file_path).split(".")[0].split("_")[0]
+    
+    
     # Read the file, skipping the metadata lines
     df = pd.read_csv(file_path, sep="\s+", skiprows=9)
 
@@ -71,9 +54,17 @@ def extract_raw_trap_sim_data(file_path):
     y_spacing = round(float(df["y"].unique()[1] - df["y"].unique()[0]), 6)
     z_spacing = round(float(df["z"].unique()[1] - df["z"].unique()[0]), 6)
 
-    dimension = (x_dimension, x_spacing, y_dimension, y_spacing, z_dimension, z_spacing)
+    dimension = (("x_dim", x_dimension), ("x_spacing", x_spacing), 
+                 ("y_dim", y_dimension), ("y_spacing", y_spacing),
+                 ("z_dim", z_dimension), ("z_spacing", z_spacing))
 
-    return df, dimension
+    # add the dimension as a tupple to the dataframe under the name "dim"
+    df.attrs["dim"] = dimension
+
+    df.to_pickle(
+       "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\" + blade_name + "_extracted.csv")
+
+    return df
 
 
 # define a fucntion that takes in a dataframe and a point and returns the electric field at that point
@@ -101,7 +92,7 @@ def get_val_from_point(dataframe, x, y, z, val):
     else:
         # Return a large negative value if the point is not found
         return -1e6
-    
+
 def get_V_from_point(dataframe, x, y, z):
     return get_val_from_point(dataframe, x, y, z, "V")
 
@@ -115,25 +106,19 @@ def get_Ez_from_point(dataframe, x, y, z):
     return get_val_from_point(dataframe, x, y, z, "Ez")
 
 def get_all_from_point(dataframe, x, y, z):
-    return (
+    return [
         get_V_from_point(dataframe, x, y, z),
         get_Ex_from_point(dataframe, x, y, z),
         get_Ey_from_point(dataframe, x, y, z),
         get_Ez_from_point(dataframe, x, y, z),
-    )
+    ]
+
+def get_set_of_points(dataframe):
+    return set(zip(dataframe["x"], dataframe["y"], dataframe["z"]))
 
 
-dataframe, dim = extract_raw_trap_sim_data(
-    "C:\GitHub\TrapFrequencyAnalysis\Data\Datatest1.txt"
-)
+# dataframe = pd.read_pickle(
+#     "C:\GitHub\TrapFrequencyAnalysis\Data\Simplified1\RF12_extracted.csv"
+# )
 
-values = dataframe["V"].tolist()
-print(values[:10])
-print(dim)
-
-v_value = get_all_from_point(dataframe, -.99, -.1, -.1)
-print(v_value)
-
-dataframe.to_csv(
-    "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\exported_data.csv", index=False
-)
+#print(get_set_of_points(dataframe))

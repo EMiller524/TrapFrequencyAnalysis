@@ -1,7 +1,7 @@
-import constants as c
+import Electrode as var
 
 def get_potential_nofreq(electrode, potential):
-    return c.electrode[0] * potential
+    return var.electrode[0] * potential
 
 def get_potential_freq(electrode, potential):
     return c.electrode[0] * potential * np.sin(2 * np.pi * c.electrode[1] * 10**3 * t)  + c.electrode[2]
