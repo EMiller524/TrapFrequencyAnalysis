@@ -9,7 +9,7 @@ import Electrode
 
 
 class Simulation:
-    def __init__(self, dataset, variables = consts.Electrode_vars()):
+    def __init__(self, dataset, variables=consts.Electrode_vars()):
         """
         Initialize the Electrode object.
 
@@ -19,20 +19,23 @@ class Simulation:
         - data (pd.DataFrame, optional): A pandas DataFrame containing relevant electrode data.
         """
         self.dataset = dataset
-        self.file_path = (
-            "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\")
+        self.file_path = "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\"
 
         # make a dictionary of electrodes with each name in consts.electrode_names as the key and an electrode class as the value
         self.electrode_vars = variables
 
         self.electrodes = {}
         for electrode in consts.electrode_names:
-            self.electrodes[electrode] = Electrode.Electrode(electrode, self.dataset, self.electrode_vars.get_vars(electrode))
+            self.electrodes[electrode] = Electrode.Electrode(
+                electrode, self.dataset, self.electrode_vars.get_vars(electrode)
+            )
 
         self.valid_points = self.get_valid_points()
 
     def update_electrode(self, electrode):
-        self.electrodes[electrode] = Electrode.Electrode(electrode, self.dataset, self.electrode_vars.get_vars(electrode))
+        self.electrodes[electrode] = Electrode.Electrode(
+            electrode, self.dataset, self.electrode_vars.get_vars(electrode)
+        )
 
     def set_variables(self, electrode, variables):
         self.electrode_vars.set_vars(electrode, variables)
@@ -59,7 +62,9 @@ class Simulation:
             if self.electrodes[electrode].data is None:
                 continue
             else:
-                V += self.electrodes[electrode].get_potential_at_point_using_var( x, y, z)
+                V += self.electrodes[electrode].get_potential_at_point_using_var(
+                    x, y, z
+                )
         return V
 
     def get_voltage_second_derivative_at_point(self, x, y, z, plot_fit=False):
@@ -99,14 +104,17 @@ class Simulation:
             target_index = target_indices[0]
 
             # Select up to 10 points on both sides
-            left_index = max(0, target_index - 2)
-            right_index = min(len(sorted_points), target_index + 2 + 1)
+            left_index = max(0, target_index - 5)
+            right_index = min(len(sorted_points), target_index + 5 + 1)
             points_of_interest = sorted_points[left_index:right_index]
 
             # Extract the coordinate values and corresponding voltage
             coord_values = points_of_interest[:, index]
             V_values = np.array(
-                [self.get_total_voltage_at_point(*point) for point in points_of_interest]
+                [
+                    self.get_total_voltage_at_point(*point)
+                    for point in points_of_interest
+                ]
             )
 
             # print(f"Direction: {direction}")
@@ -125,7 +133,9 @@ class Simulation:
                 x_smooth = np.linspace(
                     min(coord_values), max(coord_values), 100
                 )  # Smooth x range
-                V_fit = np.polyval(fit, x_smooth)  # Evaluate polynomial at smooth x values
+                V_fit = np.polyval(
+                    fit, x_smooth
+                )  # Evaluate polynomial at smooth x values
 
                 plt.figure(figsize=(6, 4))
                 plt.scatter(
@@ -154,13 +164,13 @@ class Simulation:
             ((consts.ion_charge) * abs((derivatives[0]))) / (consts.ion_mass)
         )
         trap_freq_y = math.sqrt(
-            ((consts.ion_charge) * (derivatives[1])) / (consts.ion_mass)
+            ((consts.ion_charge) * abs((derivatives[1]))) / (consts.ion_mass)
         )
         trap_freq_z = math.sqrt(
-            ((consts.ion_charge) * (derivatives[2])) / (consts.ion_mass)
+            ((consts.ion_charge) * abs((derivatives[2]))) / (consts.ion_mass)
         )
 
-        trap_freq_radial = ((trap_freq_y**2) * (trap_freq_z**2))**(1/2)
+        trap_freq_radial = (((trap_freq_y**2) * (trap_freq_z**2)) ** (1 / 2))/2
 
         return (
             ("axial trap freq", trap_freq_x),
@@ -216,7 +226,10 @@ class Simulation:
                 label="Interpolated Curve",
             )
             axes[i].axvline(
-                [x, y, z][index], color="green", linestyle="--", label=f"Point at {x, y, z}"
+                [x, y, z][index],
+                color="green",
+                linestyle="--",
+                label=f"Point at {x, y, z}",
             )
             axes[i].set_xlabel(f"{direction} Coordinate")
             axes[i].set_ylabel("Voltage (V)")
@@ -229,12 +242,30 @@ class Simulation:
 
 
 test_sim = Simulation("Simplified1")
-test_sim.set_variables("RF12", [0, 0, 0, 0])
-test_sim.set_variables("RF1", [1, 27000000, 0, 0])
+test_sim.set_variables("RF12", [1, 280000000, 0, 0])
+test_sim.set_variables("RF1", [0, 0, 0, 0])
+test_sim.set_variables("RF2", [0, 0, 0, 0])
+test_sim.set_variables("DC1", [.5, 0, 0, 0])
+test_sim.set_variables("DC2", [.1, 0, 0, 0])
+test_sim.set_variables("DC3", [0, 0, 0, 0])
+test_sim.set_variables("DC4", [.1, 0, 0, 0])
+test_sim.set_variables("DC5", [.5, 0, 0, 0])
+test_sim.set_variables("DC6", [.5, 0, 0, 0])
+test_sim.set_variables("DC7", [.1, 0, 0, 0])
+test_sim.set_variables("DC8", [0, 0, 0, 0])
+test_sim.set_variables("DC9", [.1, 0, 0, 0])
+test_sim.set_variables("DC10", [.5, 0, 0, 0])
+
 
 print(test_sim.get_total_voltage_at_point(0, 0, 0))
-deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=False)
+deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=True)
 print("deriv", deriv)
+freqa = test_sim.calcualte_frequencys(0, 0, 0)
+print(freqa)
 
-#test_sim.plot_potential_in_principal_directions(0, 0, 0)
-print(test_sim.calcualte_frequencys(0, 0, 0))
+test_sim.plot_potential_in_principal_directions(0, 0, 0)
+# print(test_sim.calcualte_frequencys(0, 0, 0))
+# print(test_sim.calcualte_frequencys(0.1, 0, 0))
+# print(test_sim.calcualte_frequencys(0.2, 0, 0))
+# print(test_sim.calcualte_frequencys(-0.2, 0, 0))
+# print(test_sim.calcualte_frequencys(-0.1, 0, 0))
