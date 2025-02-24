@@ -36,9 +36,15 @@ class Simulation:
             )
 
         self.valid_points = self.get_valid_points()
+        
+        self.X_poly = None
+        self.make_x_poly()
 
         self.total_voltage_df = None
         self.get_total_voltage_at_all_points()
+        
+        self.Vmodel = None
+        self.fit_voltage()
 
         print("simulation initialized")
 
@@ -91,58 +97,40 @@ class Simulation:
         if len(self.valid_points) == 0:
             raise ValueError("No valid points available for fitting.")
 
-        # Extract valid points (x, y, z)
-        X = self.valid_points  # Shape (N, 3) where N is the number of valid points
-        print('X: ')
-        print(X.shape)
-        print("")
-
         # Grab the columbn of total voltaghe from the self.total_voltage_df
-        V = np.array(self.total_voltage_df["CalcV"])
-
-        # Generate polynomial features up to degree 4
-        degree = 3
-        poly = PolynomialFeatures(degree)
-        X_poly = poly.fit_transform(X)
-        print('X_poly: ')
-        print(X_poly)
-        print("")
+        V = np.array(self.total_voltage_df["CalcV"])       
 
         print("Fitting")
         # Fit a linear regression model to the polynomial-transformed data
         model = LinearRegression()
-        model.fit(X_poly, V)
+        model.fit(self.X_poly, V)
         print("Fitted")
+        
+        self.Vmodel = model
+    
+    def make_x_poly(self):
+        polyy = PolynomialFeatures(4)
+        X_polyy = polyy.fit_transform(self.valid_points)
+        self.X_poly = X_polyy
+    
+    def get_error_of_fit(self):
+        V = np.array(self.total_voltage_df["CalcV"])       
 
         # Predict voltage for error analysis
-        V_pred = model.predict(X_poly)
+        V_pred = self.Vmodel.predict(self.X_poly)
 
         # Compute error metrics
         r2 = r2_score(V, V_pred)
         mse = mean_squared_error(V, V_pred)
         rmse = np.sqrt(mse)
 
-        # Get polynomial coefficients
-        coeffs = model.coef_
-        intercept = model.intercept_
-
-        # Format the polynomial equation as a string
-        feature_names = poly.get_feature_names_out(["x", "y", "z"])
-        equation_terms = [
-            f"{coeff:.6f}*{name}" for coeff, name in zip(coeffs, feature_names)
-        ]
-        equation = f"V(x, y, z) = {intercept:.6f} + " + " + ".join(equation_terms)
-
         # Output results
-        print("Fitted Quartic Polynomial Equation:")
-        print(equation)
         print("\nError Analysis:")
         print(f"R^2 Score: {r2:.5f}")
         print(f"Mean Squared Error (MSE): {mse:.5f}")
         print(f"Root Mean Squared Error (RMSE): {rmse:.5f}")
 
-        # Return the model and polynomial transformer for further use
-        return model, poly
+
 
     def get_voltage_second_derivative_at_point(self, x, y, z, plot_fit=False):
         """
@@ -324,10 +312,14 @@ class Simulation:
 
 elec_vars = consts.Electrode_vars()
 elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
+elec_vars.set_vars("DC2", [3, 0, 0, 0])
+elec_vars.set_vars("DC4", [3, 0, 0, 0])
 
 test_sim = Simulation("Simplified1", elec_vars)
 
 test_sim.fit_voltage()
+
+test_sim.get_error_of_fit()
 
 # print(test_sim.get_total_voltage_at_point(0, 0, 0))
 # deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=True)
