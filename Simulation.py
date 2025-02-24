@@ -10,6 +10,9 @@ import Electrode
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error
+import v_interpolator
+import sympy as sp  # Import sympy
+import time
 
 
 class Simulation:
@@ -36,15 +39,9 @@ class Simulation:
             )
 
         self.valid_points = self.get_valid_points()
-        
-        self.X_poly = None
-        self.make_x_poly()
 
         self.total_voltage_df = None
         self.get_total_voltage_at_all_points()
-        
-        self.Vmodel = None
-        self.fit_voltage()
 
         print("simulation initialized")
 
@@ -71,7 +68,6 @@ class Simulation:
                 print (f"no data for {electrode}")
             else:
                 dfs.append(self.electrodes[electrode].get_dataframe())
-        print("HIIIIIIII")
 
         # Step 1: Find the intersection of all unique (x, y, z) combinations
         common_keys = reduce(lambda left, right: pd.merge(left, right, on=['x', 'y', 'z']), [df[['x', 'y', 'z']] for df in dfs])
@@ -87,240 +83,175 @@ class Simulation:
 
         self.total_voltage_df = master_df
 
-    # globaly fits voltage to a 4th degree polynomial and outputs the equation and the error analysis
-    def fit_voltage(self):
+    def fit_v_at_point(self, x0, y0, z0, grid_size = 7):
         """
-        Fits the total voltage at valid points to a quartic polynomial (degree 4)
-        using least squares regression.
-        Outputs the equation and error analysis.
-        """
-        if len(self.valid_points) == 0:
-            raise ValueError("No valid points available for fitting.")
+        Compute the Hessian matrix at (x0, y0, z0) using a cubic polynomial fit
+        on a local 7x7x7 grid of points.
 
-        # Grab the columbn of total voltaghe from the self.total_voltage_df
-        V = np.array(self.total_voltage_df["CalcV"])       
-
-        print("Fitting")
-        # Fit a linear regression model to the polynomial-transformed data
-        model = LinearRegression()
-        model.fit(self.X_poly, V)
-        print("Fitted")
-        
-        self.Vmodel = model
-    
-    def make_x_poly(self):
-        polyy = PolynomialFeatures(4)
-        X_polyy = polyy.fit_transform(self.valid_points)
-        self.X_poly = X_polyy
-    
-    def get_error_of_fit(self):
-        V = np.array(self.total_voltage_df["CalcV"])       
-
-        # Predict voltage for error analysis
-        V_pred = self.Vmodel.predict(self.X_poly)
-
-        # Compute error metrics
-        r2 = r2_score(V, V_pred)
-        mse = mean_squared_error(V, V_pred)
-        rmse = np.sqrt(mse)
-
-        # Output results
-        print("\nError Analysis:")
-        print(f"R^2 Score: {r2:.5f}")
-        print(f"Mean Squared Error (MSE): {mse:.5f}")
-        print(f"Root Mean Squared Error (RMSE): {rmse:.5f}")
-
-
-
-    def get_voltage_second_derivative_at_point(self, x, y, z, plot_fit=False):
-        """
-        Compute the second derivative of voltage at (x, y, z) in the x, y, and z directions
-        by fitting local points to a polynomial and differentiating.
-
-        Args:
-            x, y, z (float): The coordinates of the point.
+        Parameters:
+        - x0, y0, z0 (float): The point where Hessian is computed.
+        - grid_size (int): The number of points along each axis (default 7).
 
         Returns:
-            tuple: (d²V/dx², d²V/dy², d²V/dz²) or (None, None, None) if data is insufficient.
+        - H (np.array): 3x3 Hessian matrix at (x0, y0, z0).
         """
-        derivatives = []
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
 
-        # Define the directions to iterate over
-        directions = ["x", "y", "z"]
-        indices = [0, 1, 2]  # Corresponding indices in `valid_points`
+        # Ensure the grid size is odd to center on (x0, y0, z0)
+        if grid_size % 2 == 0:
+            grid_size += 1
 
-        for direction, index in zip(directions, indices):
-            # Filter points where the other two coordinates are fixed
-            filtered_points = self.valid_points[
-                (self.valid_points[:, (index + 1) % 3] == [y, z][index != 0])
-                & (self.valid_points[:, (index + 2) % 3] == [y, z][index == 0])
-            ]
+        # Find the closest grid points to (x0, y0, z0)
+        df = self.total_voltage_df.copy()
 
-            # Sort by the coordinate of interest
-            sorted_points = filtered_points[np.argsort(filtered_points[:, index])]
+        # Get unique grid points along each axis
+        x_vals = np.sort(df["x"].unique())
+        y_vals = np.sort(df["y"].unique())
+        z_vals = np.sort(df["z"].unique())
 
-            # Get index of the desired point
-            target_indices = np.where(sorted_points[:, index] == [x, y, z][index])[0]
+        # Find the index of the closest grid points to (x0, y0, z0)
+        x_idx = np.searchsorted(x_vals, x0)
+        y_idx = np.searchsorted(y_vals, y0)
+        z_idx = np.searchsorted(z_vals, z0)
 
-            if len(target_indices) == 0:
-                derivatives.append(None)
-                continue  # Skip if no valid data
+        # Get indices for the surrounding grid
+        half_grid = grid_size // 2
+        x_range = x_vals[
+            max(0, x_idx - half_grid) : min(len(x_vals), x_idx + half_grid + 1)
+        ]
+        y_range = y_vals[
+            max(0, y_idx - half_grid) : min(len(y_vals), y_idx + half_grid + 1)
+        ]
+        z_range = z_vals[
+            max(0, z_idx - half_grid) : min(len(z_vals), z_idx + half_grid + 1)
+        ]
 
-            target_index = target_indices[0]
+        # Filter the dataframe to include only points within this grid
+        df_grid = df[
+            (df["x"].isin(x_range)) & (df["y"].isin(y_range)) & (df["z"].isin(z_range))
+        ]
 
-            # Select up to 10 points on both sides
-            left_index = max(0, target_index - 5)
-            right_index = min(len(sorted_points), target_index + 5 + 1)
-            points_of_interest = sorted_points[left_index:right_index]
-
-            # Extract the coordinate values and corresponding voltage
-            coord_values = points_of_interest[:, index]
-            V_values = np.array(
-                [
-                    self.get_total_voltage_at_point(*point)
-                    for point in points_of_interest
-                ]
+        if len(df_grid) < grid_size**3:
+            print(
+                "Warning: Not enough points in the selected grid. Reducing grid size."
             )
 
-            # print(f"Direction: {direction}")
-            # print("Points of Interest:", points_of_interest)
-            # print("Voltages:", V_values)
+        # Prepare input features
+        X = df_grid[["x", "y", "z"]]
+        y = df_grid["CalcV"]
 
-            # Fit a polynomial of degree 3
-            fit = np.polyfit(coord_values, V_values, 2)
+        # Create cubic polynomial features
+        poly = PolynomialFeatures(degree=3, include_bias=True)
+        X_poly = poly.fit_transform(X)
 
-            # Compute the second derivative at the given coordinate
-            second_derivative = np.polyval(np.polyder(fit, 2), [x, y, z][index])
-            derivatives.append(second_derivative)
+        # Fit the model
+        model = LinearRegression()
+        model.fit(X_poly, y)
+        coeff = model.coef_
 
-            # **Plot the polynomial fit if requested**
-            if plot_fit:
-                x_smooth = np.linspace(
-                    min(coord_values), max(coord_values), 100
-                )  # Smooth x range
-                V_fit = np.polyval(
-                    fit, x_smooth
-                )  # Evaluate polynomial at smooth x values
+        y_pred = model.predict(X_poly)
+        r2 = r2_score(y, y_pred)
+        mse = mean_squared_error(y, y_pred)
 
-                plt.figure(figsize=(6, 4))
-                plt.scatter(
-                    coord_values, V_values, color="red", label="Data Points"
-                )  # Scatter plot
-                plt.plot(
-                    x_smooth, V_fit, color="blue", label="Polynomial Fit"
-                )  # Polynomial curve
-                plt.axvline(x, color="green", linestyle="--", label=f"Point at {x}")
-                plt.xlabel(f"{direction} Coordinate")
-                plt.ylabel("Voltage (V)")
-                plt.title(f"Voltage Fit in {direction}-Direction")
-                plt.legend()
-                plt.grid()
-                plt.show()
+        print(f"R²: {r2:.4f}, MSE: {mse:.4f}")
 
-        return list(derivatives)  # (d²V/dx², d²V/dy², d²V/dz²)
+        return model, poly
+
+    def get_hessian_at_point(self, x, y, z):
+
+        """
+        Compute the Hessian of the polynomial regression model at a given point (x, y, z).
+        
+        Args:
+            model: Trained LinearRegression model.
+            poly: PolynomialFeatures instance used for feature transformation.
+            point: Tuple (x, y, z) where the Hessian is computed.
+        
+        Returns:
+            Hessian matrix (3x3 numpy array)
+        """
+        model, poly = self.fit_v_at_point(x, y, z)
+
+        feature_names = poly.get_feature_names_out(["x", "y", "z"])
+        coef_dict = dict(zip(feature_names, model.coef_))
+
+        # Initialize Hessian as a 3x3 zero matrix
+        H = np.zeros((3, 3))
+
+        # Second-order partial derivatives
+        H[0, 0] = 2 * coef_dict.get("x^2", 0) + 2 * coef_dict.get("x^2 y", 0) * y + 2 * coef_dict.get("x^2 z", 0) * z
+        H[1, 1] = 2 * coef_dict.get("y^2", 0) + 2 * coef_dict.get("y^2 x", 0) * x + 2 * coef_dict.get("y^2 z", 0) * z
+        H[2, 2] = 2 * coef_dict.get("z^2", 0) + 2 * coef_dict.get("z^2 x", 0) * x + 2 * coef_dict.get("z^2 y", 0) * y
+
+        # Mixed partial derivatives
+        H[0, 1] = H[1, 0] = coef_dict.get("x y", 0) + 2 * coef_dict.get("x y z", 0) * z
+        H[0, 2] = H[2, 0] = coef_dict.get("x z", 0) + 2 * coef_dict.get("x y z", 0) * y
+        H[1, 2] = H[2, 1] = coef_dict.get("y z", 0) + 2 * coef_dict.get("x y z", 0) * x
+
+        print("X dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[0,0])) * 2 * math.pi))
+        print("Y dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[1,1])) * 2 * math.pi))
+
+        print("Z dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[2,2])) * 2 * math.pi))
+
+        print (H)
+        return H
+
+    def diagonalize_hessian(self, H):
+        """
+        Diagonalize the Hessian matrix and return the eigenvalues and eigenvectors.
+        
+        Args:
+            H (np.array): 3x3 Hessian matrix.
+        
+        Returns:
+            Tuple (eigenvalues, eigenvectors)
+        """
+        # Compute eigenvalues and eigenvectors
+        eigenvalues, eigenvectors = np.linalg.eig(H)
+
+        # Sort eigenvalues in ascending order
+        idx = np.argsort(eigenvalues)
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:, idx]
+
+        return eigenvalues, eigenvectors
+
+    def get_frequencys_at_point(self, x, y, z):
+        # call get_hessian_at_point and then diagonalize the hessian
+        # calculate the frequencys from the diagonalized hessian and the principlae directions of the hessian
+        # return the frequencys and the principlae directions
+
+        eigenvalues, eigenvectors = self.diagonalize_hessian(self.get_hessian_at_point(x, y, z))
+        Q = consts.ion_charge
+        M = consts.ion_mass
+
+        frequencys_and_directions = []
+        # Calculate frequencies
+        for i in range(3):
+            frequency = math.sqrt((Q/M) * abs(eigenvalues[i])) * 2 * math.pi
+            direction = eigenvectors[i]
+            frequencys_and_directions.append((frequency, direction))
+
+        return frequencys_and_directions
 
     def get_electrode(self, name):
         return self.electrodes[name]
 
-    def calcualte_frequencys(self, x, y, z):
-        derivatives = self.get_voltage_second_derivative_at_point(x, y, z)
-
-        trap_freq_x = math.sqrt(
-            ((consts.ion_charge) * abs((derivatives[0]))) / (consts.ion_mass)
-        ) * 2 * math.pi
-        trap_freq_y = math.sqrt(
-            ((consts.ion_charge) * abs((derivatives[1]))) / (consts.ion_mass)
-        ) * 2 * math.pi
-        trap_freq_z = math.sqrt(
-            ((consts.ion_charge) * abs((derivatives[2]))) / (consts.ion_mass)
-        ) * 2 * math.pi
-
-        trap_freq_radial = ((((trap_freq_y**2) + (trap_freq_z**2))/2) ** (1 / 2))
-
-        return (
-            ("trap freq x", trap_freq_x),
-            ("trap freq y", trap_freq_y),
-            ("trap freq z", trap_freq_z),
-            ("radial trap freq:", trap_freq_radial),
-        )
-
-    def plot_potential_in_principal_directions(self, x, y, z):
-        """
-        Plots the potential at all valid points along the principal directions (x, y, z)
-        while keeping the other two coordinates fixed.
-
-        Args:
-            x, y, z (float): The coordinates of the reference point.
-
-        Returns:
-            None (Displays the plots)
-        """
-        directions = ["x", "y", "z"]
-        indices = [0, 1, 2]  # Corresponding indices in `valid_points`
-
-        fig, axes = plt.subplots(
-            1, 3, figsize=(15, 5)
-        )  # Create a subplot for each direction
-
-        for i, (direction, index) in enumerate(zip(directions, indices)):
-            # Filter points where the other two coordinates are fixed
-            filtered_points = self.valid_points[
-                (self.valid_points[:, (index + 1) % 3] == [y, z][index != 0])
-                & (self.valid_points[:, (index + 2) % 3] == [y, z][index == 0])
-            ]
-
-            # Sort by the coordinate of interest
-            sorted_points = filtered_points[np.argsort(filtered_points[:, index])]
-
-            if sorted_points.shape[0] == 0:
-                print(f"No valid points found in {direction}-direction.")
-                continue
-
-            # Extract the coordinate values and corresponding voltage
-            coord_values = sorted_points[:, index]
-            V_values = np.array(
-                [self.get_total_voltage_at_point(*point) for point in sorted_points]
-            )
-
-            # Plot the results
-            axes[i].scatter(coord_values, V_values, color="red", label="Data Points")
-            axes[i].plot(
-                coord_values,
-                V_values,
-                color="blue",
-                linestyle="-",
-                alpha=0.7,
-                label="Interpolated Curve",
-            )
-            axes[i].axvline(
-                [x, y, z][index],
-                color="green",
-                linestyle="--",
-                label=f"Point at {x, y, z}",
-            )
-            axes[i].set_xlabel(f"{direction} Coordinate")
-            axes[i].set_ylabel("Voltage (V)")
-            axes[i].set_title(f"Potential vs. {direction}-coordinate")
-            axes[i].legend()
-            axes[i].grid()
-
-        plt.tight_layout()
-        plt.show()
-
-
-# TODO: RE GET ALL THE POTENTIAL DATA WITH GROUNDED THIS TIME. ALSO GET THE DATA FOR RF12 AND THEN ALSO RF1 and RF2 separately
 
 elec_vars = consts.Electrode_vars()
 elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
-elec_vars.set_vars("DC2", [3, 0, 0, 0])
-elec_vars.set_vars("DC4", [3, 0, 0, 0])
+elec_vars.set_vars("DC2", [0, 0, 0, 0])
+elec_vars.set_vars("DC4", [0, 0, 0, 0])
 
 test_sim = Simulation("Simplified1", elec_vars)
 
-test_sim.fit_voltage()
-
-test_sim.get_error_of_fit()
-
+# calcualte the time this takes
+start = time.time()
+print(test_sim.get_frequencys_at_point(0,0,0))
+end = time.time()
+print("time took: ", end - start)
 # print(test_sim.get_total_voltage_at_point(0, 0, 0))
 # deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=True)
 # print("deriv", deriv)
