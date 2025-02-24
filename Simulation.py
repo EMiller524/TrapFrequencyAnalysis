@@ -1,3 +1,4 @@
+from functools import reduce
 import math
 from matplotlib import pyplot as plt
 import numpy as np
@@ -6,6 +7,9 @@ import dataextractor
 import os
 import consts
 import Electrode
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, mean_squared_error
 
 
 class Simulation:
@@ -18,6 +22,7 @@ class Simulation:
         - voltage (float): The applied voltage.
         - data (pd.DataFrame, optional): A pandas DataFrame containing relevant electrode data.
         """
+        print("initializing simulation")
         self.dataset = dataset
         self.file_path = "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\"
 
@@ -32,14 +37,10 @@ class Simulation:
 
         self.valid_points = self.get_valid_points()
 
-    def update_electrode(self, electrode):
-        self.electrodes[electrode] = Electrode.Electrode(
-            electrode, self.dataset, self.electrode_vars.get_vars(electrode)
-        )
+        self.total_voltage_df = None
+        self.get_total_voltage_at_all_points()
 
-    def set_variables(self, electrode, variables):
-        self.electrode_vars.set_vars(electrode, variables)
-        self.update_electrode(electrode)
+        print("simulation initialized")
 
     def get_variables(self, electrode):
         return self.electrode_vars.get_vars(electrode)
@@ -56,16 +57,92 @@ class Simulation:
 
         return np.array(sorted(common_points))
 
-    def get_total_voltage_at_point(self, x, y, z):
-        V = 0
+    def get_total_voltage_at_all_points(self):
+        # get the data for each electrode
+        dfs = []
         for electrode in consts.electrode_names:
-            if self.electrodes[electrode].data is None:
-                continue
+            if self.electrodes[electrode].get_dataframe() is None:
+                print (f"no data for {electrode}")
             else:
-                V += self.electrodes[electrode].get_potential_at_point_using_var(
-                    x, y, z
-                )
-        return V
+                dfs.append(self.electrodes[electrode].get_dataframe())
+        print("HIIIIIIII")
+
+        # Step 1: Find the intersection of all unique (x, y, z) combinations
+        common_keys = reduce(lambda left, right: pd.merge(left, right, on=['x', 'y', 'z']), [df[['x', 'y', 'z']] for df in dfs])
+
+        # Step 2: Concatenate all dataframes
+        merged_df = pd.concat(dfs, ignore_index=True)
+
+        # Step 3: Filter merged_df to only keep common (x, y, z) keys
+        filtered_df = merged_df.merge(common_keys, on=['x', 'y', 'z'])
+
+        # Step 4: Group by (x, y, z) and sum CalcV
+        master_df = filtered_df.groupby(['x', 'y', 'z'], as_index=False)['CalcV'].sum()
+
+        self.total_voltage_df = master_df
+
+    # globaly fits voltage to a 4th degree polynomial and outputs the equation and the error analysis
+    def fit_voltage(self):
+        """
+        Fits the total voltage at valid points to a quartic polynomial (degree 4)
+        using least squares regression.
+        Outputs the equation and error analysis.
+        """
+        if len(self.valid_points) == 0:
+            raise ValueError("No valid points available for fitting.")
+
+        # Extract valid points (x, y, z)
+        X = self.valid_points  # Shape (N, 3) where N is the number of valid points
+        print('X: ')
+        print(X.shape)
+        print("")
+
+        # Grab the columbn of total voltaghe from the self.total_voltage_df
+        V = np.array(self.total_voltage_df["CalcV"])
+
+        # Generate polynomial features up to degree 4
+        degree = 3
+        poly = PolynomialFeatures(degree)
+        X_poly = poly.fit_transform(X)
+        print('X_poly: ')
+        print(X_poly)
+        print("")
+
+        print("Fitting")
+        # Fit a linear regression model to the polynomial-transformed data
+        model = LinearRegression()
+        model.fit(X_poly, V)
+        print("Fitted")
+
+        # Predict voltage for error analysis
+        V_pred = model.predict(X_poly)
+
+        # Compute error metrics
+        r2 = r2_score(V, V_pred)
+        mse = mean_squared_error(V, V_pred)
+        rmse = np.sqrt(mse)
+
+        # Get polynomial coefficients
+        coeffs = model.coef_
+        intercept = model.intercept_
+
+        # Format the polynomial equation as a string
+        feature_names = poly.get_feature_names_out(["x", "y", "z"])
+        equation_terms = [
+            f"{coeff:.6f}*{name}" for coeff, name in zip(coeffs, feature_names)
+        ]
+        equation = f"V(x, y, z) = {intercept:.6f} + " + " + ".join(equation_terms)
+
+        # Output results
+        print("Fitted Quartic Polynomial Equation:")
+        print(equation)
+        print("\nError Analysis:")
+        print(f"R^2 Score: {r2:.5f}")
+        print(f"Mean Squared Error (MSE): {mse:.5f}")
+        print(f"Root Mean Squared Error (RMSE): {rmse:.5f}")
+
+        # Return the model and polynomial transformer for further use
+        return model, poly
 
     def get_voltage_second_derivative_at_point(self, x, y, z, plot_fit=False):
         """
@@ -93,7 +170,6 @@ class Simulation:
 
             # Sort by the coordinate of interest
             sorted_points = filtered_points[np.argsort(filtered_points[:, index])]
-            
 
             # Get index of the desired point
             target_indices = np.where(sorted_points[:, index] == [x, y, z][index])[0]
@@ -246,29 +322,22 @@ class Simulation:
 
 # TODO: RE GET ALL THE POTENTIAL DATA WITH GROUNDED THIS TIME. ALSO GET THE DATA FOR RF12 AND THEN ALSO RF1 and RF2 separately
 
-test_sim = Simulation("Simplified1")
-test_sim.set_variables("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
-test_sim.set_variables("RF1", [0, 0, 0, 0])
-test_sim.set_variables("RF2", [0, 0, 0, 0])
-test_sim.set_variables("DC1", [0, 0, 0, 0])
-test_sim.set_variables("DC2", [0, 0, 0, 0])
-test_sim.set_variables("DC3", [0, 0, 0, 0])
-test_sim.set_variables("DC4", [0, 0, 0, 0])
-test_sim.set_variables("DC5", [0, 0, 0, 0])
-test_sim.set_variables("DC6", [0, 0, 0, 0])
-test_sim.set_variables("DC7", [0, 0, 0, 0])
-test_sim.set_variables("DC8", [0, 0, 0, 0])
-test_sim.set_variables("DC9", [0, 0, 0, 0])
-test_sim.set_variables("DC10", [0, 0, 0, 0])
+elec_vars = consts.Electrode_vars()
+elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
+
+test_sim = Simulation("Simplified1", elec_vars)
+
+test_sim.fit_voltage()
+
+# print(test_sim.get_total_voltage_at_point(0, 0, 0))
+# deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=True)
+# print("deriv", deriv)
+# freqa = test_sim.calcualte_frequencys(0, 0, 0)
+# print(freqa)
+
+# test_sim.plot_potential_in_principal_directions(0, 0, 0)
 
 
-print(test_sim.get_total_voltage_at_point(0, 0, 0))
-deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=True)
-print("deriv", deriv)
-freqa = test_sim.calcualte_frequencys(0, 0, 0)
-print(freqa)
-
-test_sim.plot_potential_in_principal_directions(0, 0, 0)
 # print(test_sim.calcualte_frequencys(0, 0, 0))
 # print(test_sim.calcualte_frequencys(0.1, 0, 0))
 # print(test_sim.calcualte_frequencys(0.2, 0, 0))

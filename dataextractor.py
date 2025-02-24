@@ -110,12 +110,28 @@ def get_Ez_from_point(dataframe, x, y, z):
     return get_val_from_point(dataframe, x, y, z, "Ez")
 
 def get_all_from_point(dataframe, x, y, z):
-    return [
-        get_V_from_point(dataframe, x, y, z),
-        get_Ex_from_point(dataframe, x, y, z),
-        get_Ey_from_point(dataframe, x, y, z),
-        get_Ez_from_point(dataframe, x, y, z),
-    ]
+    # Use the query method for efficient filtering
+    print("geting points from data frame")
+    filtered_df = dataframe.query("x == @x and y == @y and z == @z")
+
+    if not filtered_df.empty:
+        # Directly access the values using iat for better performance
+        return [
+            filtered_df.iat[0, dataframe.columns.get_loc("V")],
+            filtered_df.iat[0, dataframe.columns.get_loc("Ex")],
+            filtered_df.iat[0, dataframe.columns.get_loc("Ey")],
+            filtered_df.iat[0, dataframe.columns.get_loc("Ez")]
+        ]
+    else:
+        # Return a large negative value if the point is not found
+        return -1e6
+
+    # return [
+    #     get_V_from_point(dataframe, x, y, z),
+    #     get_Ex_from_point(dataframe, x, y, z),
+    #     get_Ey_from_point(dataframe, x, y, z),
+    #     get_Ez_from_point(dataframe, x, y, z),
+    # ]
 
 def get_set_of_points(dataframe):
     return set(zip(dataframe["x"], dataframe["y"], dataframe["z"]))
@@ -125,4 +141,4 @@ def get_set_of_points(dataframe):
 #     "C:\GitHub\TrapFrequencyAnalysis\Data\Simplified1\RF12_extracted.csv"
 # )
 
-#print(get_set_of_points(dataframe))
+# print(get_set_of_points(dataframe))
