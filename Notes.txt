@@ -21,7 +21,6 @@ Whats the normal range for:
     radial freq:
 
 
-To say:
     - Not going to be in this week (midtermmmmms), and problem sets got moved around so thursday and fridays are gonna work better now
     
     - Got to the point where from the COMSOL generated potential I can:

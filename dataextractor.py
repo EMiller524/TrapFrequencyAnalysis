@@ -39,10 +39,14 @@ def extract_raw_trap_sim_data(file_path):
         "Ey",
         "Ez",
     ]
-
+    
+    #Now we iterated through x,y,z and divide eveery value by 1000 to convert it from mm to m
+    for column in ["x", "y", "z"]:
+        df[column] = df[column] / 1000
+    
     # Now we will iterate through all the columns and round the values to a specified number of decimal places
     for column in df.columns:
-        df[column] = df[column].round(6)
+        df[column] = df[column].round(9)
 
     # now we will find the dimensions of the data, meaning how many distinct x, y, z values are there and how sperated each axis's sampling is
     # we will return the dimensions as a tuple

@@ -93,6 +93,7 @@ class Simulation:
 
             # Sort by the coordinate of interest
             sorted_points = filtered_points[np.argsort(filtered_points[:, index])]
+            
 
             # Get index of the desired point
             target_indices = np.where(sorted_points[:, index] == [x, y, z][index])[0]
@@ -122,7 +123,7 @@ class Simulation:
             # print("Voltages:", V_values)
 
             # Fit a polynomial of degree 3
-            fit = np.polyfit(coord_values, V_values, 3)
+            fit = np.polyfit(coord_values, V_values, 2)
 
             # Compute the second derivative at the given coordinate
             second_derivative = np.polyval(np.polyder(fit, 2), [x, y, z][index])
@@ -162,18 +163,20 @@ class Simulation:
 
         trap_freq_x = math.sqrt(
             ((consts.ion_charge) * abs((derivatives[0]))) / (consts.ion_mass)
-        )
+        ) * 2 * math.pi
         trap_freq_y = math.sqrt(
             ((consts.ion_charge) * abs((derivatives[1]))) / (consts.ion_mass)
-        )
+        ) * 2 * math.pi
         trap_freq_z = math.sqrt(
             ((consts.ion_charge) * abs((derivatives[2]))) / (consts.ion_mass)
-        )
+        ) * 2 * math.pi
 
-        trap_freq_radial = (((trap_freq_y**2) * (trap_freq_z**2)) ** (1 / 2))/2
+        trap_freq_radial = ((((trap_freq_y**2) + (trap_freq_z**2))/2) ** (1 / 2))
 
         return (
-            ("axial trap freq", trap_freq_x),
+            ("trap freq x", trap_freq_x),
+            ("trap freq y", trap_freq_y),
+            ("trap freq z", trap_freq_z),
             ("radial trap freq:", trap_freq_radial),
         )
 
@@ -241,20 +244,22 @@ class Simulation:
         plt.show()
 
 
+# TODO: RE GET ALL THE POTENTIAL DATA WITH GROUNDED THIS TIME. ALSO GET THE DATA FOR RF12 AND THEN ALSO RF1 and RF2 separately
+
 test_sim = Simulation("Simplified1")
-test_sim.set_variables("RF12", [1, 280000000, 0, 0])
+test_sim.set_variables("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
 test_sim.set_variables("RF1", [0, 0, 0, 0])
 test_sim.set_variables("RF2", [0, 0, 0, 0])
-test_sim.set_variables("DC1", [.5, 0, 0, 0])
-test_sim.set_variables("DC2", [.1, 0, 0, 0])
+test_sim.set_variables("DC1", [0, 0, 0, 0])
+test_sim.set_variables("DC2", [0, 0, 0, 0])
 test_sim.set_variables("DC3", [0, 0, 0, 0])
-test_sim.set_variables("DC4", [.1, 0, 0, 0])
-test_sim.set_variables("DC5", [.5, 0, 0, 0])
-test_sim.set_variables("DC6", [.5, 0, 0, 0])
-test_sim.set_variables("DC7", [.1, 0, 0, 0])
+test_sim.set_variables("DC4", [0, 0, 0, 0])
+test_sim.set_variables("DC5", [0, 0, 0, 0])
+test_sim.set_variables("DC6", [0, 0, 0, 0])
+test_sim.set_variables("DC7", [0, 0, 0, 0])
 test_sim.set_variables("DC8", [0, 0, 0, 0])
-test_sim.set_variables("DC9", [.1, 0, 0, 0])
-test_sim.set_variables("DC10", [.5, 0, 0, 0])
+test_sim.set_variables("DC9", [0, 0, 0, 0])
+test_sim.set_variables("DC10", [0, 0, 0, 0])
 
 
 print(test_sim.get_total_voltage_at_point(0, 0, 0))
