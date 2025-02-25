@@ -1,4 +1,5 @@
 import math
+import time
 import pandas as pd
 import dataextractor
 import os
@@ -16,7 +17,7 @@ class Electrode:
         - voltage (float): The applied voltage.
         - data (pd.DataFrame, optional): A pandas DataFrame containing relevant electrode data.
         """
-
+        start = time.time()
         print("electrode init started")
         self.name = name
         self.file_path = (
@@ -41,7 +42,8 @@ class Electrode:
         #self.get_feild_mag_at_all_points()
         self.get_potential_at_all_points()
 
-        print("electrode init done")
+        end = time.time()
+        print("electrode init done" + str(end - start))
 
     def get_dataframe(self):
         return self.data

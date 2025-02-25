@@ -15,7 +15,13 @@ import sympy as sp  # Import sympy
 import time
 import matplotlib.cm as cm
 import matplotlib.colors as colors
+import concurrent.futures
 
+
+def init_electrode(electrode_name, dataset, electrode_vars):
+    return electrode_name, Electrode.Electrode(
+        electrode_name, dataset, electrode_vars.get_vars(electrode_name)
+    )
 
 class Simulation:
     def __init__(self, dataset, variables=consts.Electrode_vars()):
@@ -35,11 +41,18 @@ class Simulation:
         self.electrode_vars = variables
 
         self.electrodes = {}
-        for electrode in consts.electrode_names:
-            self.electrodes[electrode] = Electrode.Electrode(
-                electrode, self.dataset, self.electrode_vars.get_vars(electrode)
-            )
-
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(
+                    init_electrode, electrode, self.dataset, self.electrode_vars
+                )
+                for electrode in consts.electrode_names
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                electrode_name, electrode_instance = future.result()
+                self.electrodes[electrode_name] = electrode_instance
+        
+        
         self.valid_points = self.get_valid_points()
 
         self.total_voltage_df = None
@@ -198,7 +211,7 @@ class Simulation:
 
         # print("Z dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[2,2])) * 2 * math.pi))
 
-        # print (H)
+        print ("Hessian at: " + str((x,y,z)) + str(H))
         return H
 
     def diagonalize_hessian(self, H):
@@ -476,7 +489,6 @@ class Simulation:
     def get_electrode(self, name):
         return self.electrodes[name]
 
-start = time.time()
 
 elec_vars = consts.Electrode_vars()
 elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
@@ -488,12 +500,45 @@ elec_vars.set_vars("DC10", [0, 0, 0, 0])
 test_sim = Simulation("Simplified1", elec_vars)
 
 # calcualte the time this takes
-print( test_sim.get_frequencys_at_point_xyz(0, 0, 0))
+start = time.time()
+
+# print( test_sim.get_frequencys_at_point_xyz(0, 0, 0))
+freq = test_sim.get_frequencys_at_point_hess(0, 0, 0)
+# print freqeuncy in a nice mannor\
+print('For point 0, 0, 0')
+for i in range(3):
+    print("Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz")
+
+freq = test_sim.get_frequencys_at_point_hess(.00001, 0, 0)
+# print freqeuncy in a nice mannor
+print('For point 0.00001, 0, 0')
+for i in range(3):
+    print(
+        "Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz"
+    )
+
+freq = test_sim.get_frequencys_at_point_hess(0, 0.00002, 0)
+# print freqeuncy in a nice mannor
+print('For point 0, 0.00002, 0')
+for i in range(3):
+    print(
+        "Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz"
+    )
+
+freq = test_sim.get_frequencys_at_point_hess(0, 0, 0.00002)
+# print freqeuncy in a nice mannor
+print('For point 0, 0, 0.00002')
+for i in range(3):
+    print(
+        "Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz"
+    )
+
+
 end = time.time()
 print("time took: ", end - start)
 
-test_sim.plot_potential_in_xyz_directions(0, 0, 0)
-test_sim.plot_freq_in_xyz_directions(0, 0, 0)
+# test_sim.plot_potential_in_xyz_directions(0, 0, 0)
+# test_sim.plot_freq_in_xyz_directions(0, 0, 0)
 
-test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
-test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
+# test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
+# test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
