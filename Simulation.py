@@ -13,6 +13,8 @@ from sklearn.metrics import r2_score, mean_squared_error
 import v_interpolator
 import sympy as sp  # Import sympy
 import time
+import matplotlib.cm as cm
+import matplotlib.colors as colors
 
 
 class Simulation:
@@ -83,7 +85,7 @@ class Simulation:
 
         self.total_voltage_df = master_df
 
-    def fit_v_at_point(self, x0, y0, z0, grid_size = 7):
+    def fit_v_at_point(self, x0, y0, z0, grid_size = 9, show = True):
         """
         Compute the Hessian matrix at (x0, y0, z0) using a cubic polynomial fit
         on a local 7x7x7 grid of points.
@@ -133,7 +135,7 @@ class Simulation:
             (df["x"].isin(x_range)) & (df["y"].isin(y_range)) & (df["z"].isin(z_range))
         ]
 
-        if len(df_grid) < grid_size**3:
+        if len(df_grid) < (grid_size**2):
             print(
                 "Warning: Not enough points in the selected grid. Reducing grid size."
             )
@@ -143,7 +145,7 @@ class Simulation:
         y = df_grid["CalcV"]
 
         # Create cubic polynomial features
-        poly = PolynomialFeatures(degree=3, include_bias=True)
+        poly = PolynomialFeatures(degree=3, include_bias=False)
         X_poly = poly.fit_transform(X)
 
         # Fit the model
@@ -155,8 +157,9 @@ class Simulation:
         r2 = r2_score(y, y_pred)
         mse = mean_squared_error(y, y_pred)
 
-        print(f"R²: {r2:.4f}, MSE: {mse:.4f}")
-
+        if r2 < .99:
+            print(f"Warning: Low R² value ({r2:.4f}) for the polynomial fit.")
+            print(f"R²: {r2:.4f}, MSE: {mse:.4f}")
         return model, poly
 
     def get_hessian_at_point(self, x, y, z):
@@ -190,12 +193,12 @@ class Simulation:
         H[0, 2] = H[2, 0] = coef_dict.get("x z", 0) + 2 * coef_dict.get("x y z", 0) * y
         H[1, 2] = H[2, 1] = coef_dict.get("y z", 0) + 2 * coef_dict.get("x y z", 0) * x
 
-        print("X dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[0,0])) * 2 * math.pi))
-        print("Y dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[1,1])) * 2 * math.pi))
+        # print("X dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[0,0])) * 2 * math.pi))
+        # print("Y dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[1,1])) * 2 * math.pi))
 
-        print("Z dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[2,2])) * 2 * math.pi))
+        # print("Z dir freq: " + str(math.sqrt((consts.ion_charge / consts.ion_mass) * abs(H[2,2])) * 2 * math.pi))
 
-        print (H)
+        # print (H)
         return H
 
     def diagonalize_hessian(self, H):
@@ -218,7 +221,7 @@ class Simulation:
 
         return eigenvalues, eigenvectors
 
-    def get_frequencys_at_point(self, x, y, z):
+    def get_frequencys_at_point_hess(self, x, y, z):
         # call get_hessian_at_point and then diagonalize the hessian
         # calculate the frequencys from the diagonalized hessian and the principlae directions of the hessian
         # return the frequencys and the principlae directions
@@ -236,33 +239,261 @@ class Simulation:
 
         return frequencys_and_directions
 
+    def get_frequencys_at_point_xyz(self, x, y, z, look_around=10):
+        """
+        Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
+        to voltage values along each axis separately and extracting the second derivative.
+
+        Args:
+            x, y, z (float): The point of interest.
+            look_around (int): Number of points to consider in each direction (default 5).
+
+        Returns:
+            list: [freq_x, freq_y, freq_z]
+        """
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
+
+        def fit_and_get_second_derivative(axis_values, voltage_values, target_value):
+            """Fit a cubic polynomial and return the second derivative at the target value."""
+            if len(axis_values) < 4:
+                print("Not enough points for a cubic fit along one axis.")
+                return None
+
+            # Fit a cubic polynomial
+            coeffs = np.polyfit(axis_values, voltage_values, 3)
+            poly_derivative = np.polyder(coeffs, 2)  # Second derivative
+            second_derivative_at_target = np.polyval(poly_derivative, target_value)
+            return second_derivative_at_target
+
+        df = self.total_voltage_df.copy()
+        Q = consts.ion_charge
+        M = consts.ion_mass
+        frequencies = []
+
+        for axis in ["x", "y", "z"]:
+            # Get axis values and voltage values around the point of interest while holding other coordinates constant
+            if axis == "x":
+                filtered_df = df[(df["y"] == y) & (df["z"] == z)]
+            elif axis == "y":
+                filtered_df = df[(df["x"] == x) & (df["z"] == z)]
+            else:  # axis == 'z'
+                filtered_df = df[(df["x"] == x) & (df["y"] == y)]
+
+            sorted_df = filtered_df.sort_values(by=[axis])
+            axis_vals = sorted_df[axis].values
+            voltage_vals = sorted_df["CalcV"].values
+
+            closest_idx = np.searchsorted(axis_vals, eval(axis))
+            start_idx = max(0, closest_idx - look_around)
+            end_idx = min(len(axis_vals), closest_idx + look_around + 1)
+            selected_axis_vals = axis_vals[start_idx:end_idx]
+            selected_voltage_vals = voltage_vals[start_idx:end_idx]
+
+            second_derivative = fit_and_get_second_derivative(
+                selected_axis_vals, selected_voltage_vals, eval(axis)
+            )
+            if second_derivative is None:
+                frequencies.append(None)
+                print(f"Could not calculate frequency along {axis} axis.")
+            else:
+                freq = math.sqrt((Q / M) * abs(second_derivative)) * 2 * math.pi
+                frequencies.append(freq)
+
+        return frequencies
+
+    def plot_potential_in_xyz_directions(self, x, y, z, x_cutoff = 1, y_cutoff = 1, z_cutoff = 1):
+        # plots all the potential with x varying and y,z as inputed. And the same for y and z
+        # this plot will be shown all together side by side in 3 different plots, but one window and formatted nicely
+
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
+
+        df = self.total_voltage_df.copy()
+
+        for axis in ["x", "y", "z"]:
+            # Get axis values and voltage values around the point of interest while holding other coordinates constant
+            if axis == "x":
+                filtered_df = df[
+                    (df["x"] > (-x_cutoff))
+                    & (df["x"] < x_cutoff)
+                    & (df["y"] == y)
+                    & (df["z"] == z)
+                ]
+            elif axis == "y":
+                filtered_df = df[
+                    (df["y"] > (-y_cutoff))
+                    & (df["y"] < y_cutoff)
+                    & (df["x"] == x)
+                    & (df["z"] == z)
+                ]
+            else:  # axis == 'z'
+                filtered_df = df[
+                    (df["z"] > (-z_cutoff))
+                    & (df["z"] < z_cutoff)
+                    & (df["x"] == x)
+                    & (df["y"] == y)
+                ]
+
+            # now plot filtered df with axis as the x axis and CalcV as the y axis
+            plt.subplot(1, 3, ["x", "y", "z"].index(axis) + 1)
+            plt.plot(filtered_df[axis] * 1000, filtered_df["CalcV"], 'b-')
+            plt.scatter(filtered_df[axis] * 1000, filtered_df["CalcV"], color='r', s=10)
+            plt.xlabel(f"{axis} (mm)")
+            plt.ylabel("CalcV")
+            plt.title(f"Calculated Potential along {axis} axis")
+
+        plt.tight_layout(pad=.1)
+        plt.show()
+
+    def plot_freq_in_xyz_directions(self, x, y, z, x_cutoff = 1, y_cutoff = 1, z_cutoff = 1):
+        # plots all the potential with x varying and y,z as inputed. And the same for y and z
+        # this plot will be shown all together side by side in 3 different plots, but one window and formatted nicely
+
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
+
+        df = self.total_voltage_df.copy()
+
+        for axis in ["x", "y", "z"]:
+            # Get axis values and voltage values around the point of interest while holding other coordinates constant
+            if axis == "x":
+                filtered_df = df[
+                    (df["x"] > (-x_cutoff))
+                    & (df["x"] < x_cutoff)
+                    & (df["y"] == y)
+                    & (df["z"] == z)
+                ]
+            elif axis == "y":
+                filtered_df = df[
+                    (df["y"] > (-y_cutoff))
+                    & (df["y"] < y_cutoff)
+                    & (df["x"] == x)
+                    & (df["z"] == z)
+                ]
+            else:  # axis == 'z'
+                filtered_df = df[
+                    (df["z"] > (-z_cutoff))
+                    & (df["z"] < z_cutoff)
+                    & (df["x"] == x)
+                    & (df["y"] == y)
+                ]
+            # now calculate the frequency at each point in the filtered df
+            freqs = []
+            for i in range(len(filtered_df)):
+                freqs.append(self.get_frequencys_at_point_xyz(filtered_df.iloc[i]["x"], filtered_df.iloc[i]["y"], filtered_df.iloc[i]["z"])[["x", "y", "z"].index(axis)])
+            print(str(axis) + str(freqs))
+
+            # now fit the frequencys vs the axis values
+            plt.subplot(1, 3, ["x", "y", "z"].index(axis) + 1)
+            plt.plot(filtered_df[axis] * 1000, freqs, "b-")  # Convert x-axis values to mm
+            plt.scatter(filtered_df[axis] * 1000, freqs, color="r", s=10)  # Convert x-axis values to mm
+            plt.xlabel(f"{axis} (mm)")  # Update x-axis label
+            plt.ylabel("CalcV")
+            plt.title(f"Calculated freq along {axis} axis")
+
+        plt.tight_layout(pad=.1)
+        plt.show()
+
+    def plot_frequency_in_principal_directions_everywhere(self):
+        return None
+        """
+        Plots frequency vectors in the principal directions at each valid point using a 3D quiver plot.
+
+        - The magnitude of each vector corresponds to the frequency in that direction.
+        - The direction of the vector corresponds to the principal axis.
+        - The color of each vector represents its magnitude.
+        """
+
+        if self.valid_points is None or len(self.valid_points) == 0:
+            print("No valid points available for plotting.")
+            return
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection="3d")
+
+        # Lists to store vector components for quiver plot
+        x_vals, y_vals, z_vals = [], [], []
+        u_vals, v_vals, w_vals = [], [], []
+        freq_mags = []  # Color by magnitude
+        i = 0
+        for point in self.valid_points:
+            i = i + 1
+            if i % 1000 == 0:
+                print(
+                    "______________________________________________________________________________"
+                    + str(i / 380000)
+                )
+            x, y, z = point
+            if x < -.000005 or x > .000005 or y < -.000005 or y > .000005 or z < -.00001 or z > .00001:
+                continue
+
+            frequencys_and_directions = self.get_frequencys_at_point_hess(x, y, z)
+
+            for frequency, direction in frequencys_and_directions:
+                x_vals.append(x)
+                y_vals.append(y)
+                z_vals.append(z)
+
+                # Normalize direction vector and scale by frequency
+                norm_dir = np.array(direction) / np.linalg.norm(direction)
+                scaled_dir = norm_dir * frequency
+
+                u_vals.append(scaled_dir[0])
+                v_vals.append(scaled_dir[1])
+                w_vals.append(scaled_dir[2])
+                freq_mags.append(frequency)
+
+        # Convert lists to numpy arrays
+        x_vals, y_vals, z_vals = np.array(x_vals), np.array(y_vals), np.array(z_vals)
+        u_vals, v_vals, w_vals = np.array(u_vals), np.array(v_vals), np.array(w_vals)
+        freq_mags = np.array(freq_mags)
+
+        # Normalize frequency values to use with colormap
+        norm = colors.Normalize(vmin=min(freq_mags), vmax=max(freq_mags))
+        cmap = cm.get_cmap('RdBu')  # Choose a colormap
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+        quiver_colors = sm.to_rgba(freq_mags)  # Convert frequencies to RGBA colors
+
+        # Create quiver plot
+        quiver = ax.quiver(x_vals, y_vals, z_vals, u_vals, v_vals, w_vals, 
+                    length=0.000001, normalize=True, color=quiver_colors, linewidth=0.5)
+        # Add color bar
+        cbar = fig.colorbar(quiver, ax=ax, shrink=0.6)
+        cbar.set_label("Frequency Magnitude")
+
+        # Labels and title
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_zlabel("Z (m)")
+        ax.set_title("Principal Frequency Vectors at Each Valid Point")
+
+        plt.show()
+
     def get_electrode(self, name):
         return self.electrodes[name]
 
+start = time.time()
 
 elec_vars = consts.Electrode_vars()
 elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
-elec_vars.set_vars("DC2", [0, 0, 0, 0])
-elec_vars.set_vars("DC4", [0, 0, 0, 0])
+elec_vars.set_vars("DC1", [0, 0, 0, 0])
+elec_vars.set_vars("DC5", [0, 0, 0, 0])
+elec_vars.set_vars("DC6", [0, 0, 0, 0])
+elec_vars.set_vars("DC10", [0, 0, 0, 0])
 
 test_sim = Simulation("Simplified1", elec_vars)
 
 # calcualte the time this takes
-start = time.time()
-print(test_sim.get_frequencys_at_point(0,0,0))
+print( test_sim.get_frequencys_at_point_xyz(0, 0, 0))
 end = time.time()
 print("time took: ", end - start)
-# print(test_sim.get_total_voltage_at_point(0, 0, 0))
-# deriv = test_sim.get_voltage_second_derivative_at_point(0, 0, 0, plot_fit=True)
-# print("deriv", deriv)
-# freqa = test_sim.calcualte_frequencys(0, 0, 0)
-# print(freqa)
 
-# test_sim.plot_potential_in_principal_directions(0, 0, 0)
+test_sim.plot_potential_in_xyz_directions(0, 0, 0)
+test_sim.plot_freq_in_xyz_directions(0, 0, 0)
 
-
-# print(test_sim.calcualte_frequencys(0, 0, 0))
-# print(test_sim.calcualte_frequencys(0.1, 0, 0))
-# print(test_sim.calcualte_frequencys(0.2, 0, 0))
-# print(test_sim.calcualte_frequencys(-0.2, 0, 0))
-# print(test_sim.calcualte_frequencys(-0.1, 0, 0))
+test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
+test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
