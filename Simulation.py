@@ -398,7 +398,7 @@ class Simulation:
             freqs = []
             for i in range(len(filtered_df)):
                 freqs.append(self.get_frequencys_at_point_xyz(filtered_df.iloc[i]["x"], filtered_df.iloc[i]["y"], filtered_df.iloc[i]["z"])[["x", "y", "z"].index(axis)])
-            print(str(axis) + str(freqs))
+            # print(str(axis) + str(freqs))
 
             # now fit the frequencys vs the axis values
             plt.subplot(1, 3, ["x", "y", "z"].index(axis) + 1)
@@ -492,53 +492,23 @@ class Simulation:
 
 elec_vars = consts.Electrode_vars()
 elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
-elec_vars.set_vars("DC1", [0, 0, 0, 0])
-elec_vars.set_vars("DC5", [0, 0, 0, 0])
-elec_vars.set_vars("DC6", [0, 0, 0, 0])
-elec_vars.set_vars("DC10", [0, 0, 0, 0])
+# elec_vars.set_vars("RF2", [377, 28000000 * 2 * math.pi, 0, 0])
+# elec_vars.set_vars("DC1", [0, 0, 0, 0])
+# elec_vars.set_vars("DC5", [0, 0, 0, 0])
+# elec_vars.set_vars("DC6", [0, 0, 0, 0])
+# elec_vars.set_vars("DC10", [0, 0, 0, 0])
 
-test_sim = Simulation("Simplified1", elec_vars)
+test_sim = Simulation("Simplified2", elec_vars)
 
-# calcualte the time this takes
-start = time.time()
+print(test_sim.get_frequencys_at_point_xyz(0, 0, 0))
 
-# print( test_sim.get_frequencys_at_point_xyz(0, 0, 0))
 freq = test_sim.get_frequencys_at_point_hess(0, 0, 0)
-# print freqeuncy in a nice mannor\
 print('For point 0, 0, 0')
 for i in range(3):
     print("Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz")
 
-freq = test_sim.get_frequencys_at_point_hess(.00001, 0, 0)
-# print freqeuncy in a nice mannor
-print('For point 0.00001, 0, 0')
-for i in range(3):
-    print(
-        "Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz"
-    )
+test_sim.plot_potential_in_xyz_directions(0, 0, 0)
+test_sim.plot_freq_in_xyz_directions(0, 0, 0)
 
-freq = test_sim.get_frequencys_at_point_hess(0, 0.00002, 0)
-# print freqeuncy in a nice mannor
-print('For point 0, 0.00002, 0')
-for i in range(3):
-    print(
-        "Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz"
-    )
-
-freq = test_sim.get_frequencys_at_point_hess(0, 0, 0.00002)
-# print freqeuncy in a nice mannor
-print('For point 0, 0, 0.00002')
-for i in range(3):
-    print(
-        "Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz"
-    )
-
-
-end = time.time()
-print("time took: ", end - start)
-
-# test_sim.plot_potential_in_xyz_directions(0, 0, 0)
-# test_sim.plot_freq_in_xyz_directions(0, 0, 0)
-
-# test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
-# test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
+test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
+test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)

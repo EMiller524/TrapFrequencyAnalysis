@@ -25,6 +25,11 @@ def extract_raw_trap_sim_data(file_path):
     # extract the last bit of the file path to use as the name of the dataframe
     blade_name = os.path.basename(file_path).split(".")[0].split("_")[0]
     
+    #extract the simulation from the file path, meaing the "simplified1" or "simplified2" part of the file path
+    simulation = file_path.split("\\")[4]
+    
+    print("Extracting data from " + blade_name + " in " + simulation + " simulation")
+    
     
     # Read the file, skipping the metadata lines
     df = pd.read_csv(file_path, sep="\s+", skiprows=9)
@@ -66,7 +71,7 @@ def extract_raw_trap_sim_data(file_path):
     df.attrs["dim"] = dimension
 
     df.to_pickle(
-       "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\" + blade_name + "_extracted.csv")
+       "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + simulation + "\\" + blade_name + "_extracted.csv")
 
     return df
 
@@ -142,3 +147,5 @@ def get_set_of_points(dataframe):
 # )
 
 # print(get_set_of_points(dataframe))
+
+extract_raw_trap_sim_data("C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\RF12_Raw.txt")
