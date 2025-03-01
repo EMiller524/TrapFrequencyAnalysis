@@ -51,8 +51,7 @@ class Simulation:
             for future in concurrent.futures.as_completed(futures):
                 electrode_name, electrode_instance = future.result()
                 self.electrodes[electrode_name] = electrode_instance
-        
-        
+
         self.valid_points = self.get_valid_points()
 
         self.total_voltage_df = None
@@ -246,7 +245,7 @@ class Simulation:
         frequencys_and_directions = []
         # Calculate frequencies
         for i in range(3):
-            frequency = math.sqrt((Q/M) * abs(eigenvalues[i])) * 2 * math.pi
+            frequency = math.sqrt((Q/M) * abs(eigenvalues[i])) / (math.pi * 2)
             direction = eigenvectors[i]
             frequencys_and_directions.append((frequency, direction))
 
@@ -273,11 +272,32 @@ class Simulation:
             if len(axis_values) < 4:
                 print("Not enough points for a cubic fit along one axis.")
                 return None
+            # print("axis values: " + str(axis_values))
+            # print("voltage values: " + str(voltage_values))
+            # print("target value: " + str(target_value))
 
             # Fit a cubic polynomial
-            coeffs = np.polyfit(axis_values, voltage_values, 3)
-            poly_derivative = np.polyder(coeffs, 2)  # Second derivative
+            coeffs = np.polyfit(axis_values, voltage_values, 4)
+            # print a readable version of the fit
+            # if the target_value = 0
+            # if target_value == 0:
+            #     print("Fit: "  + str(coeffs[0]) + "x^3 + " + str(coeffs[1]) + "x^2 + " + str(coeffs[2]) + "x + " + str(coeffs[3]))
+
+            poly_derivative = np.polyder(coeffs, 2) 
             second_derivative_at_target = np.polyval(poly_derivative, target_value)
+
+            # plot the fit of the polynomial
+            should_plot = False
+            if should_plot:
+                x = np.linspace(min(axis_values), max(axis_values), 100)
+                y = np.polyval(coeffs, x)
+                plt.plot(x, y, 'r-')
+                plt.scatter(axis_values, voltage_values, color='b')
+                plt.xlabel("Axis Value")
+                plt.ylabel("Voltage Value")
+                plt.title("Cubic Fit along Axis")
+                plt.show()
+
             return second_derivative_at_target
 
         df = self.total_voltage_df.copy()
@@ -304,14 +324,20 @@ class Simulation:
             selected_axis_vals = axis_vals[start_idx:end_idx]
             selected_voltage_vals = voltage_vals[start_idx:end_idx]
 
+            # print("")
+            # print("Axis is in the " + axis + " direction")
             second_derivative = fit_and_get_second_derivative(
                 selected_axis_vals, selected_voltage_vals, eval(axis)
             )
+
             if second_derivative is None:
                 frequencies.append(None)
                 print(f"Could not calculate frequency along {axis} axis.")
             else:
-                freq = math.sqrt((Q / M) * abs(second_derivative)) * 2 * math.pi
+                # Frequency Equation
+                # print("Second derivative in " + axis + " direction: " + str(second_derivative) + " V/m^2")
+                # freq = second_derivative
+                freq = math.sqrt((Q / M) * abs(second_derivative)) / (2 * math.pi) ###############################################################################################################
                 frequencies.append(freq)
 
         return frequencies
@@ -326,7 +352,9 @@ class Simulation:
 
         df = self.total_voltage_df.copy()
 
-        for axis in ["x", "y", "z"]:
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+
+        for axis, ax in zip(["x", "y", "z"], axs):
             # Get axis values and voltage values around the point of interest while holding other coordinates constant
             if axis == "x":
                 filtered_df = df[
@@ -350,16 +378,27 @@ class Simulation:
                     & (df["y"] == y)
                 ]
 
+            # fit the potential vs the axis values to a 4th degree polynomial
+            coeffs = np.polyfit(filtered_df[axis], filtered_df["CalcV"], 4)
+            poly = np.poly1d(coeffs)
+            fitted_values = poly(filtered_df[axis])
+
+            # plot the fitted curve
+            ax.plot(filtered_df[axis] * 1000, fitted_values, 'g--')
+
+            # put the fit equation in legend
+            fit_equation = f"{coeffs[0]:.2e}x^4"
+            ax.legend([fit_equation], loc='upper left', bbox_to_anchor=(0, 1), fontsize='small', frameon=False)
+
             # now plot filtered df with axis as the x axis and CalcV as the y axis
-            plt.subplot(1, 3, ["x", "y", "z"].index(axis) + 1)
-            plt.plot(filtered_df[axis] * 1000, filtered_df["CalcV"], 'b-')
-            plt.scatter(filtered_df[axis] * 1000, filtered_df["CalcV"], color='r', s=10)
-            plt.xlabel(f"{axis} (mm)")
-            plt.ylabel("CalcV")
-            plt.title(f"Calculated Potential along {axis} axis")
+            # ax.plot(filtered_df[axis] * 1000, filtered_df["CalcV"], 'b-')
+            ax.scatter(filtered_df[axis] * 1000, filtered_df["CalcV"], color='r', s=10)
+            ax.set_xlabel(f"{axis} (mm)")
+            ax.set_ylabel("PseudoPotential (V)")
+            ax.set_title(f"Calculated PseudoV along {axis} axis", fontsize=12)
 
         plt.tight_layout(pad=.1)
-        plt.show()
+        return fig
 
     def plot_freq_in_xyz_directions(self, x, y, z, x_cutoff = 1, y_cutoff = 1, z_cutoff = 1):
         # plots all the potential with x varying and y,z as inputed. And the same for y and z
@@ -371,7 +410,9 @@ class Simulation:
 
         df = self.total_voltage_df.copy()
 
-        for axis in ["x", "y", "z"]:
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+
+        for axis, ax in zip(["x", "y", "z"], axs):
             # Get axis values and voltage values around the point of interest while holding other coordinates constant
             if axis == "x":
                 filtered_df = df[
@@ -401,15 +442,14 @@ class Simulation:
             # print(str(axis) + str(freqs))
 
             # now fit the frequencys vs the axis values
-            plt.subplot(1, 3, ["x", "y", "z"].index(axis) + 1)
-            plt.plot(filtered_df[axis] * 1000, freqs, "b-")  # Convert x-axis values to mm
-            plt.scatter(filtered_df[axis] * 1000, freqs, color="r", s=10)  # Convert x-axis values to mm
-            plt.xlabel(f"{axis} (mm)")  # Update x-axis label
-            plt.ylabel("CalcV")
-            plt.title(f"Calculated freq along {axis} axis")
+            ax.plot(filtered_df[axis] * 1000, freqs, "b-")  # Convert x-axis values to mm
+            ax.scatter(filtered_df[axis] * 1000, freqs, color="r", s=10)  # Convert x-axis values to mm
+            ax.set_xlabel(f"{axis} (mm)")  # Update x-axis label
+            ax.set_ylabel(f"Freq in the {axis} direction")
+            ax.set_title(f"Freq in the {axis} dir, vs the {axis} axis" , fontsize=12)
 
         plt.tight_layout(pad=.1)
-        plt.show()
+        return fig
 
     def plot_frequency_in_principal_directions_everywhere(self):
         return None
@@ -502,13 +542,30 @@ test_sim = Simulation("Simplified2", elec_vars)
 
 print(test_sim.get_frequencys_at_point_xyz(0, 0, 0))
 
-freq = test_sim.get_frequencys_at_point_hess(0, 0, 0)
+freq = test_sim.get_frequencys_at_point_hess(0, .00005, 0.00002)
 print('For point 0, 0, 0')
 for i in range(3):
     print("Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz")
 
-test_sim.plot_potential_in_xyz_directions(0, 0, 0)
-test_sim.plot_freq_in_xyz_directions(0, 0, 0)
+fig1 = test_sim.plot_potential_in_xyz_directions(0, 0, 0)
+fig2 = test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0003, 0.00005, 0.00005)
 
-test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
-test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0001, 0.00005, 0.00005)
+fig3 = test_sim.plot_freq_in_xyz_directions(0, 0, 0)
+fig4 = test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0003, 0.00005, 0.00005)
+
+# Things to plot: (And make it like a total report output save to file type thing)
+    # Ex,y,z in x,y,z directions
+    # Emag in x,y,z directions
+    # PseudoPot in x,y,z directions (3 graphs)
+    # Freq in x,y,z as a fucntion of postion in x,y,z (9 graphs!!!)
+    # Freq in x,y,z as a function of position in x,y,z with a cutoff of 0.0003, 0.00005, 0.00005 (9 graphs!!!)
+    # Radial freq vs x axis
+
+# Other todo
+    # Get the data again from comsol (grounded vs not??, added vs not??)
+    # Clean up code, make the "catch RF" more robust
+    # Make a ploting class?
+    # Find ways to make the code run faster!!!
+    # find out if the (+) and (-) x^4 coeffs on the quartic fit is an error... 
+
+plt.show()

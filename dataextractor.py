@@ -49,6 +49,15 @@ def extract_raw_trap_sim_data(file_path):
     for column in ["x", "y", "z"]:
         df[column] = df[column] / 1000
     
+    
+    # #Now convert the Ex,Ey,Ez to standard SI units
+    # for column in ["Ex", "Ey", "Ez"]:
+    #     df[column] = df[column]
+        
+    # #and now for V
+    # df["V"] = df["V"]
+    
+    
     # Now we will iterate through all the columns and round the values to a specified number of decimal places
     for column in df.columns:
         df[column] = df[column].round(9)
@@ -148,4 +157,4 @@ def get_set_of_points(dataframe):
 
 # print(get_set_of_points(dataframe))
 
-extract_raw_trap_sim_data("C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\RF12_Raw.txt")
+# extract_raw_trap_sim_data("C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\RF12_Raw.txt")

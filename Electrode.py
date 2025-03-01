@@ -30,6 +30,7 @@ class Electrode:
 
         self.points = ()
         self.data = None
+
         # if the etracted data is already saved then define it as self.data
         if os.path.exists(self.file_path + "_extracted.csv"):
             self.data = pd.read_pickle(self.file_path + "_extracted.csv")
@@ -39,7 +40,21 @@ class Electrode:
             dataextractor.extract_raw_trap_sim_data(self.file_path + "_Raw.txt")
             self.data = pd.read_pickle(self.file_path + "_extracted.csv")
 
-        #self.get_feild_mag_at_all_points()
+        catch = True
+        # Catch RF12 and sum the ExEyEz's from Rf1 and Rf2
+        if self.name == "RF12" and catch:
+            print("")
+            print("Summing Rf1 and Rf2 Efeilds for RF12")
+            print("")
+            rf1 = Electrode("RF1", dataset, variables)
+            rf2 = Electrode("RF2", dataset, variables)
+            self.data = rf1.get_dataframe()
+            self.data["Ex"] += rf2.get_dataframe()["Ex"]
+            self.data["Ey"] += rf2.get_dataframe()["Ey"]
+            self.data["Ez"] += rf2.get_dataframe()["Ez"]
+            self.data["V"] += rf2.get_dataframe()["V"]
+
+        # self.get_feild_mag_at_all_points()
         self.get_potential_at_all_points()
 
         end = time.time()
@@ -80,7 +95,7 @@ class Electrode:
         )
 
     def get_potential_at_all_points(self):
-        #print("getting potential for all points")
+        # print("getting potential for all points")
         amp = self.Amplitude
         freq = self.Frequency
         offset = self.Offset
@@ -100,10 +115,12 @@ class Electrode:
         # if voltage needs to be time averaged
         else:
             self.data["CalcV"] = self.data.apply(
-            lambda row: amp * Q * (row["Ex"]**2 + row["Ey"]**2 + row["Ez"]**2) / (4 * M * (freq**2)), axis=1
+            lambda row: ((amp * amp * Q * (row["Ex"]**2 + row["Ey"]**2 + row["Ez"]**2)) / 
+                         (4* M * (freq**2))), axis=1   
+            # Pseudo potential Eq #####################################################
         )
 
-rf12 = Electrode("RF12", "Simplified1")
+# rf12 = Electrode("RF12", "Simplified1")
 # rf12.change_varaibles([0, 28000000 * 2 * math.pi, 0, 0])
 
 # df = rf12.get_dataframe()
