@@ -40,7 +40,7 @@ class Electrode:
             dataextractor.extract_raw_trap_sim_data(self.file_path + "_Raw.txt")
             self.data = pd.read_pickle(self.file_path + "_extracted.csv")
 
-        catch = True
+        catch = False
         # Catch RF12 and sum the ExEyEz's from Rf1 and Rf2
         if self.name == "RF12" and catch:
             print("")
