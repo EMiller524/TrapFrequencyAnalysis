@@ -1,0 +1,335 @@
+import math
+from matplotlib import pyplot as plt
+import numpy as np
+from matplotlib.backends.backend_pdf import PdfPages
+from sklearn.metrics import r2_score, mean_squared_error
+
+
+class sim_ploting:
+
+    def plot_potential_in_xyz_directions(
+        self, x, y, z, x_cutoff=10, y_cutoff=10, z_cutoff=10
+    ):
+        # plots all the potential with x varying and y,z as inputed. And the same for y and z
+        # this plot will be shown all together side by side in 3 different plots, but one window and formatted nicely
+
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
+
+        df = self.total_voltage_df.copy()
+
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+
+        for axis, ax in zip(["x", "y", "z"], axs):
+            # Get axis values and voltage values around the point of interest while holding other coordinates constant
+            if axis == "x":
+                filtered_df = df[
+                    (df["x"] > (-x_cutoff))
+                    & (df["x"] < x_cutoff)
+                    & (df["y"] == y)
+                    & (df["z"] == z)
+                ]
+            elif axis == "y":
+                filtered_df = df[
+                    (df["y"] > (-y_cutoff))
+                    & (df["y"] < y_cutoff)
+                    & (df["x"] == x)
+                    & (df["z"] == z)
+                ]
+            else:  # axis == 'z'
+                filtered_df = df[
+                    (df["z"] > (-z_cutoff))
+                    & (df["z"] < z_cutoff)
+                    & (df["x"] == x)
+                    & (df["y"] == y)
+                ]
+
+            # fit the potential vs the axis values to a 4th degree polynomial
+            coeffs = np.polyfit(filtered_df[axis], filtered_df["CalcV"], 4)
+            poly = np.poly1d(coeffs)
+            fitted_values = poly(filtered_df[axis])
+
+            # plot the fitted curve
+            ax.plot(filtered_df[axis] * 1000, fitted_values, "g--")
+
+            # put the fit equation in legend
+            fit_equation = f"{coeffs[0]:.2e}x^4"
+            ax.legend(
+                [fit_equation],
+                loc="upper left",
+                bbox_to_anchor=(0, 1),
+                fontsize="small",
+                frameon=False,
+            )
+
+            # now plot filtered df with axis as the x axis and CalcV as the y axis
+            # ax.plot(filtered_df[axis] * 1000, filtered_df["CalcV"], 'b-')
+            ax.scatter(filtered_df[axis] * 1000, filtered_df["CalcV"], color="r", s=10)
+            ax.set_xlabel(f"{axis} (mm)")
+            ax.set_ylabel("PseudoPotential (V)")
+            ax.set_title(f"Calculated PseudoV along {axis} axis", fontsize=12)
+
+        plt.tight_layout(pad=0.1)
+        return fig
+
+    def plot_freq_in_xyz_directions(
+        self, x, y, z, x_cutoff=10, y_cutoff=10, z_cutoff=10
+    ):
+        # plots all the potential with x varying and y,z as inputed. And the same for y and z
+        # this plot will be shown all together side by side in 3 different plots, but one window and formatted nicely
+
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
+
+        df = self.total_voltage_df.copy()
+
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+
+        for axis, ax in zip(["x", "y", "z"], axs):
+            # Get axis values and voltage values around the point of interest while holding other coordinates constant
+            if axis == "x":
+                filtered_df = df[
+                    (df["x"] > (-x_cutoff))
+                    & (df["x"] < x_cutoff)
+                    & (df["y"] == y)
+                    & (df["z"] == z)
+                ]
+            elif axis == "y":
+                filtered_df = df[
+                    (df["y"] > (-y_cutoff))
+                    & (df["y"] < y_cutoff)
+                    & (df["x"] == x)
+                    & (df["z"] == z)
+                ]
+            else:  # axis == 'z'
+                filtered_df = df[
+                    (df["z"] > (-z_cutoff))
+                    & (df["z"] < z_cutoff)
+                    & (df["x"] == x)
+                    & (df["y"] == y)
+                ]
+            # now calculate the frequency at each point in the filtered df
+            freqs = []
+            for i in range(len(filtered_df)):
+                freqs.append(
+                    self.get_frequencys_at_point_xyz(
+                        filtered_df.iloc[i]["x"],
+                        filtered_df.iloc[i]["y"],
+                        filtered_df.iloc[i]["z"],
+                    )[["x", "y", "z"].index(axis)]
+                )
+            # print(str(axis) + str(freqs))
+
+            # now fit the frequencys vs the axis values
+            ax.plot(
+                filtered_df[axis] * 1000, freqs, "b-"
+            )  # Convert x-axis values to mm
+            ax.scatter(
+                filtered_df[axis] * 1000, freqs, color="r", s=5
+            )  # Convert x-axis values to mm
+            ax.set_xlabel(f"{axis} (mm)")  # Update x-axis label
+            ax.set_ylabel(f"Freq in the {axis} direction")
+            ax.set_title(f"Freq in the {axis} dir, vs the {axis} axis", fontsize=12)
+
+        plt.tight_layout(pad=0.1)
+        return fig
+
+    def plot_value_in_blank_direction(
+        self, x, y, z, direction, value, x_cutoff=1, y_cutoff=1, z_cutoff=1
+    ):
+        """
+        Returns a fig that plots value vs direction starting at the point(x,y,z) and moving in the direction.
+        For example, if direction = "x" and value = "CalcV", then the graph will be of the potential vs x.
+        """
+        if self.total_voltage_df is None:
+            return None
+
+        df = self.total_voltage_df.copy()
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        if direction == "x":
+            x_label = "X (mm)"
+            filtered_df = df[
+                (df["x"] > (-x_cutoff))
+                & (df["x"] < x_cutoff)
+                & (df["y"] == y)
+                & (df["z"] == z)
+            ]
+        elif direction == "y":
+            x_label = "Y (mm)"
+            filtered_df = df[
+                (df["y"] > (-y_cutoff))
+                & (df["y"] < y_cutoff)
+                & (df["x"] == x)
+                & (df["z"] == z)
+            ]
+        elif direction == "z":
+            x_label = "Z (mm)"
+            filtered_df = df[
+                (df["z"] > (-z_cutoff))
+                & (df["z"] < z_cutoff)
+                & (df["x"] == x)
+                & (df["y"] == y)
+            ]
+
+        valuess = None
+        val_name = value
+        fit = True
+        # Plot the value vs direction if value is a valid column
+        if value in filtered_df.columns:
+            valuess = filtered_df[value]
+            if value == "CalcV":
+                val_name = "PseudoPotential"
+        elif value == "EMag":
+            valuess = filtered_df.apply(
+                lambda row: math.sqrt(row["Ex"] ** 2 + row["Ey"] ** 2 + row["Ez"] ** 2),
+                axis=1,
+            )
+        elif value in ["Wx", "Wy", "Wz"]:
+            fit = False
+            axis_index = ["x", "y", "z"].index(value[1])
+            valuess = []
+            for i in range(len(filtered_df)):
+                valuess.append(
+                    self.get_frequencys_at_point_xyz(
+                        filtered_df.iloc[i]["x"],
+                        filtered_df.iloc[i]["y"],
+                        filtered_df.iloc[i]["z"],
+                    )[axis_index]
+                )
+        elif value == "Wr":
+            fit = False
+            # get the frequency in the y and z directions using get_frequencys_at_point_xyz
+            valuess = []
+            for i in range(len(filtered_df)):
+                Wy = self.get_frequencys_at_point_xyz(
+                    filtered_df.iloc[i]["x"],
+                    filtered_df.iloc[i]["y"],
+                    filtered_df.iloc[i]["z"],
+                )[["x", "y", "z"].index("y")]
+                Wz = self.get_frequencys_at_point_xyz(
+                    filtered_df.iloc[i]["x"],
+                    filtered_df.iloc[i]["y"],
+                    filtered_df.iloc[i]["z"],
+                )[["x", "y", "z"].index("z")]
+                Wr = math.sqrt((Wy**2) / 2 + (Wz**2) / 2)
+                valuess.append(Wr)
+        else:
+            return None
+
+        ax.scatter(filtered_df[direction] * 1000, valuess, s=5, c="blue")
+
+        if fit:
+            # now fit the data to a 4th degree polynomial
+            coeffs = np.polyfit(filtered_df[direction], valuess, 4)
+            poly = np.poly1d(coeffs)
+            fitted_values = poly(filtered_df[direction])
+            ax.plot(filtered_df[direction] * 1000, fitted_values, "g--")
+
+            # put the x^4 coeff in the legend and the r^2 and mse values
+            r2 = r2_score(valuess, fitted_values)
+            fit_equation_x4 = f"{coeffs[0]:.2e}x^4"
+            mse = mean_squared_error(valuess, fitted_values)
+            mse_normalized = mse * 1000000 / (np.max(valuess) - np.min(valuess)) ** 2
+            r2 = r2_score(valuess, fitted_values)
+            ax.legend(
+                [fit_equation_x4, f"R²: {r2:.4f}, RMSE: {mse_normalized:.4f}"],
+                loc="upper left",
+                bbox_to_anchor=(0, 1),
+                fontsize="small",
+                frameon=True,
+            )
+
+        # Set labels and title
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(val_name)
+        ax.set_title(f"{val_name} vs {str(direction)}")
+        ax.grid(True, alpha=0.2)
+
+        return fig
+
+    def get_full_report(self, name):
+        # plots may things
+        # Plot 1-3 PseudoPot in x,y,z directions (3 graphs)
+        # Plot 4-6 Wx vs x Wy vs y Wz Vs z (3 graphs)
+        # Plot 7 Wy vs x Wz vs x and We vs x (1 graph)
+
+        plot1 = self.plot_value_in_blank_direction(0, 0, 0, "x", "CalcV")
+
+        plot21 = self.plot_value_in_blank_direction(0, 0, 0, "y", "CalcV")
+        plot22 = self.plot_value_in_blank_direction(0, 0, 0, "z", "CalcV")
+
+        plot3 = self.plot_value_in_blank_direction(0, 0, 0, "x", "Wx")
+
+        fig41 = self.plot_value_in_blank_direction(
+            0, 0, 0, "y", "Wy", y_cutoff=0.001
+        )
+        fig42 = self.plot_value_in_blank_direction(0, 0, 0, "z", "Wz", z_cutoff=0.001)
+
+        # plot fig51 and fig52 on the same plot
+        plot4 = plt.figure()
+        ax = plot4.add_subplot(111)
+        ax.scatter(
+            fig41.axes[0].collections[0].get_offsets()[:, 0],
+            fig41.axes[0].collections[0].get_offsets()[:, 1],
+            label="Wy",
+            s=5,
+        )
+        ax.scatter(
+            fig42.axes[0].collections[0].get_offsets()[:, 0],
+            fig42.axes[0].collections[0].get_offsets()[:, 1],
+            label="Wz",
+            s=5,
+        )
+        ax.legend()
+        ax.set_xlabel("Y, Z (mm)")
+        ax.set_ylabel("Frequency in given direction")
+        ax.set_title("Wy, Wz vs Y, Z")
+
+        plot5 = plt.figure()
+        ax = plot5.add_subplot(111)
+
+        # Recompute values directly instead of extracting from previous figures
+        df = self.total_voltage_df.copy()
+        filtered_df = df[
+            (df["x"] > -1) & (df["x"] < 1) & (df["y"] == 0) & (df["z"] == 0)
+        ]
+
+        # Compute values
+        Wy_values = [
+            self.get_frequencys_at_point_xyz(row["x"], row["y"], row["z"])[1]
+            for _, row in filtered_df.iterrows()
+        ]
+        Wz_values = [
+            self.get_frequencys_at_point_xyz(row["x"], row["y"], row["z"])[2]
+            for _, row in filtered_df.iterrows()
+        ]
+        Wr_values = [
+            math.sqrt((Wy**2) / 2 + (Wz**2) / 2) for Wy, Wz in zip(Wy_values, Wz_values)
+        ]
+
+        ax.scatter(filtered_df["x"] * 1000, Wy_values, label="Wy", s=5)
+        ax.scatter(filtered_df["x"] * 1000, Wz_values, label="Wz", s=5)
+        ax.scatter(filtered_df["x"] * 1000, Wr_values, label="Wr", s=5)
+
+        ax.legend()
+        ax.set_xlabel("X (mm)")
+        ax.set_ylabel("Frequency")
+        ax.set_title("Wy, Wz, Wr vs X")
+
+        # saves plot 1-7 in a pdf with the name, name, and opens up a file dialgog thing to ask the user where to save
+        pdf_file = "repts/" + name + ".pdf"
+        with PdfPages(pdf_file) as pdf:
+            pdf.savefig(plot1)
+            pdf.savefig(plot21)
+            pdf.savefig(plot22)
+            pdf.savefig(plot3)
+            pdf.savefig(plot4)
+            pdf.savefig(plot5)
+            # pdf.savefig(plot6)
+            # pdf.savefig(plot7)
+
+        print(f"Figures saved in {pdf_file}")
