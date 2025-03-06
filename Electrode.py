@@ -1,4 +1,5 @@
 import math
+import time
 import pandas as pd
 import dataextractor
 import os
@@ -16,6 +17,8 @@ class Electrode:
         - voltage (float): The applied voltage.
         - data (pd.DataFrame, optional): A pandas DataFrame containing relevant electrode data.
         """
+        start = time.time()
+        print("electrode init started")
         self.name = name
         self.file_path = (
             "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\" + self.name
@@ -27,134 +30,104 @@ class Electrode:
 
         self.points = ()
         self.data = None
+
         # if the etracted data is already saved then define it as self.data
         if os.path.exists(self.file_path + "_extracted.csv"):
             self.data = pd.read_pickle(self.file_path + "_extracted.csv")
 
         elif os.path.exists(self.file_path + "_Raw.txt"):
+            print("extracting dataaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             dataextractor.extract_raw_trap_sim_data(self.file_path + "_Raw.txt")
             self.data = pd.read_pickle(self.file_path + "_extracted.csv")
 
-        self.determine_points()
+        catch = False
+        # Catch RF12 and sum the ExEyEz's from Rf1 and Rf2
+        if self.name == "RF12" and catch:
+            print("")
+            print("Summing Rf1 and Rf2 Efeilds for RF12")
+            print("")
+            rf1 = Electrode("RF1", dataset, variables)
+            rf2 = Electrode("RF2", dataset, variables)
+            self.data = rf1.get_dataframe()
+            self.data["Ex"] += rf2.get_dataframe()["Ex"]
+            self.data["Ey"] += rf2.get_dataframe()["Ey"]
+            self.data["Ez"] += rf2.get_dataframe()["Ez"]
+            self.data["V"] += rf2.get_dataframe()["V"]
+
+        # self.get_feild_mag_at_all_points()
+        self.get_potential_at_all_points()
+
+        end = time.time()
+        print("electrode init done" + str(end - start))
 
     def get_dataframe(self):
         return self.data
 
-    def set_varaibles(self, variables):
+    def change_varaibles(self, variables):
         self.Amplitude = variables[0]
         self.Frequency = variables[1]
         self.Phase = variables[2]
         self.Offset = variables[3]
 
+        self.get_feild_mag_at_all_points()
+        self.get_potential_at_all_points()
+
     def determine_points(self):
         if self.data is None:
             return
-        dataextractor.get_set_of_points(self.data)
+        self.points = dataextractor.get_set_of_points(self.data)
 
-    def get_poionts(self):
-        return self.points
-
-    def get_all_at_point(self, x, y, z):
-        """
-        Get all the electric field values at a specified point.
-
-        Parameters:
-        - x (float): The x-coordinate of the point.
-        - y (float): The y-coordinate of the point.
-        - z (float): The z-coordinate of the point.
-
-        Returns:
-        - tuple: A tuple containing the electric field values at the specified point.
-        """
+    def get_potential_at_point(self, x, y, z):
+        # search the dataframe for the point and return the "potential" value
         if self.data is None:
-            return [0, 0, 0, 0]
-        return dataextractor.get_all_from_point(self.data, x, y, z)
+            return None
 
-    def get_Vraw_at_point(self, x, y, z):
-        """
-        Get the voltage at a specified point.
+        return self.data.loc[
+            (self.data["x"] == x) & (self.data["y"] == y) & (self.data["z"] == z), "CalcV"
+        ].values[0]
 
-        Parameters:
-        - x (float): The x-coordinate of the point.
-        - y (float): The y-coordinate of the point.
-        - z (float): The z-coordinate of the point.
+    # for row in data add in a new column with the calculated potential
+    def get_feild_mag_at_all_points(self):
+        if self.data is None:
+            return
+        self.data["EMag"] = self.data.apply(
+            lambda row: math.sqrt(row["Ex"]**2 + row["Ey"]**2 + row["Ez"]**2), axis=1
+        )
 
-        Returns:
-        - float: The voltage at the specified point.
-        """
-        return self.get_all_at_point(x, y, z)[0]
+    def get_potential_at_all_points(self):
+        # print("getting potential for all points")
+        amp = self.Amplitude
+        freq = self.Frequency
+        offset = self.Offset
+        Q = consts.ion_charge
+        M = consts.ion_mass
 
-    def get_Exraw_at_point(self, x, y, z):
-        """
-        Get the electric field at a specified point.
+        if self.data is None:
+            return
 
-        Parameters:
-        - x (float): The x-coordinate of the point.
-        - y (float): The y-coordinate of the point.
-        - z (float): The z-coordinate of the point.
-
-        Returns:
-        - float: The electric field at the specified point.
-        """
-        return self.get_all_at_point(x, y, z)[1]
-
-    def get_Eyraw_at_point(self, x, y, z):
-        """
-        Get the electric field at a specified point.
-
-        Parameters:
-        - x (float): The x-coordinate of the point.
-        - y (float): The y-coordinate of the point.
-        - z (float): The z-coordinate of the point.
-
-        Returns:
-        - float: The electric field at the specified point.
-        """
-        return self.get_all_at_point(x, y, z)[2]
-
-    def get_Ezraw_at_point(self, x, y, z):
-        """
-        Get the electric field at a specified point.
-
-        Parameters:
-        - x (float): The x-coordinate of the point.
-        - y (float): The y-coordinate of the point.
-        - z (float): The z-coordinate of the point.
-
-        Returns:
-        - float: The electric field at the specified point.
-        """
-        return self.get_all_at_point(x, y, z)[3]
-
-    def get_feildmag_at_point(self, x, y, z):
-        """
-        Get the electric field at a specified point.
-
-        Parameters:
-        - x (float): The x-coordinate of the point.
-        - y (float): The y-coordinate of the point.
-        - z (float): The z-coordinate of the point.
-
-        Returns:
-        - float: The electric field at the specified point.
-        """
-        allpoints = self.get_all_at_point(x, y, z)
-
-        return math.sqrt(allpoints[1] ** 2 + allpoints[2] ** 2 + allpoints[3] ** 2)
-
-    def get_potential_at_point_using_var(self, x, y, z):
         # if voltage is constant
         if self.Frequency == 0:
-            return self.Amplitude * self.get_Vraw_at_point(x, y, z) + self.Offset
+            self.data["CalcV"] = self.data.apply(
+                lambda row: amp * row["V"] + offset,
+                axis=1,
+            )
 
         # if voltage needs to be time averaged
         else:
-            return (
-                self.Amplitude
-                * consts.ion_charge
-                * (self.get_feildmag_at_point(x, y, z)) ** 2
-            ) / (4 * consts.ion_mass * (self.Frequency) ** 2)
+            self.data["CalcV"] = self.data.apply(
+            lambda row: ((amp * amp * Q * (row["Ex"]**2 + row["Ey"]**2 + row["Ez"]**2)) / 
+                         (4* M * (freq**2))), axis=1   
+            # Pseudo potential Eq #####################################################
+        )
 
+# rf12 = Electrode("RF12", "Simplified1")
+# rf12.change_varaibles([0, 28000000 * 2 * math.pi, 0, 0])
 
-# rf12 = Electrode("DC1", "Simplified1")
-# print(rf12.get_potential_at_point_using_var(0,0,0))
+# df = rf12.get_dataframe()
+# print("hi")
+# # save the dataframe to a csv file
+# # df.to_csv("C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\RF12_testdf.csv")
+
+# print("pot:" + str(rf12.get_potential_at_point(0,0,0)))
+
+# print()
