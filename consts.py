@@ -53,5 +53,33 @@ class Electrode_vars:
     
     def get_phase(self, electrode):
         return self.vars[electrode][3]
-    
-    
+
+def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
+    RF1 = [twist, 0, 0, 0]
+    RF2 = [twist, 0, 0, 0]
+    RF12 = [rfamp, rffreq, 0, 0]
+
+    DC1 = [endcaps - twist, 0, 0, 0]
+    DC2 = [(-1) * twist, 0, 0, 0]
+    DC3 = [(-1) * twist, 0, 0, 0]
+    DC4 = [(-1) * twist, 0, 0, 0]
+    DC5 = [endcaps - twist, 0, 0, 0]
+    DC6 = [endcaps - twist, 0, 0, 0]
+    DC7 = [(-1) * twist, 0, 0, 0]
+    DC8 = [(-1) * twist, 0, 0, 0]
+    DC9 = [(-1) * twist, 0, 0, 0]
+    DC10 = [endcaps - twist, 0, 0, 0]
+
+    return Electrode_vars(DC1=DC1,
+                          DC2=DC2,
+                          DC3=DC3,
+                          DC4=DC4,
+                          DC5=DC5,
+                          DC6=DC6,
+                          DC7=DC7,
+                          DC8=DC8,
+                          DC9=DC9,
+                          DC10=DC10,
+                          RF1=RF1,
+                          RF2=RF2,
+                          RF12=RF12)

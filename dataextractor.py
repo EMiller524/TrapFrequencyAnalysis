@@ -60,7 +60,7 @@ def extract_raw_trap_sim_data(file_path):
     
     # Now we will iterate through all the columns and round the values to a specified number of decimal places
     for column in df.columns:
-        df[column] = df[column].round(9)
+        df[column] = df[column].round(12)
 
     # now we will find the dimensions of the data, meaning how many distinct x, y, z values are there and how sperated each axis's sampling is
     # we will return the dimensions as a tuple
@@ -68,9 +68,9 @@ def extract_raw_trap_sim_data(file_path):
     y_dimension = len(df["y"].unique())
     z_dimension = len(df["z"].unique())
 
-    x_spacing = round(float(df["x"].unique()[1] - df["x"].unique()[0]), 6)
-    y_spacing = round(float(df["y"].unique()[1] - df["y"].unique()[0]), 6)
-    z_spacing = round(float(df["z"].unique()[1] - df["z"].unique()[0]), 6)
+    x_spacing = round(float(df["x"].unique()[1] - df["x"].unique()[0]), 8)
+    y_spacing = round(float(df["y"].unique()[1] - df["y"].unique()[0]), 8)
+    z_spacing = round(float(df["z"].unique()[1] - df["z"].unique()[0]), 8)
 
     dimension = (("x_dim", x_dimension), ("x_spacing", x_spacing), 
                  ("y_dim", y_dimension), ("y_spacing", y_spacing),

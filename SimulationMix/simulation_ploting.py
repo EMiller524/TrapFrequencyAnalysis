@@ -7,6 +7,29 @@ from sklearn.metrics import r2_score, mean_squared_error
 
 class sim_ploting:
 
+    def plot_2d_contour_Vraw(self, point, axis):
+        #todo
+        return
+
+    def plot_2d_color_Vraw(self, point, axis):
+        #todo
+        return
+
+    def plot_3d_surface_Vraw(self, point, axis):
+        #todo
+        return
+
+    def plot_3d_contour_Vraw(self):
+        #todo
+        return
+
+    def plot_3d_color_Vraw(self):
+        #todo
+        return
+    
+    def plot_1d_Vraw(self, axis, x=0, y=0, z=0):
+        return self.plot_value_in_blank_direction(self, x, y, z, axis, "CalcV", x_cutoff=1, y_cutoff=1, z_cutoff=1)
+
     def plot_potential_in_xyz_directions(
         self, x, y, z, x_cutoff=10, y_cutoff=10, z_cutoff=10
     ):
@@ -120,6 +143,13 @@ class sim_ploting:
                         filtered_df.iloc[i]["z"],
                     )[["x", "y", "z"].index(axis)]
                 )
+                # freqs.append(
+                #     self.get_freqs_in_given_dir_at_point(
+                #         filtered_df.iloc[i]["x"],
+                #         filtered_df.iloc[i]["y"],
+                #         filtered_df.iloc[i]["z"],
+                #     )[["x", "y", "z"].index(axis)]
+                # )
             # print(str(axis) + str(freqs))
 
             # now fit the frequencys vs the axis values
@@ -144,6 +174,7 @@ class sim_ploting:
         For example, if direction = "x" and value = "CalcV", then the graph will be of the potential vs x.
         """
         if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
             return None
 
         df = self.total_voltage_df.copy()
@@ -193,6 +224,7 @@ class sim_ploting:
             axis_index = ["x", "y", "z"].index(value[1])
             valuess = []
             for i in range(len(filtered_df)):
+                # get_freqs_in_given_dir_at_point
                 valuess.append(
                     self.get_frequencys_at_point_xyz(
                         filtered_df.iloc[i]["x"],
@@ -200,6 +232,13 @@ class sim_ploting:
                         filtered_df.iloc[i]["z"],
                     )[axis_index]
                 )
+                # valuess.append(
+                #     self.get_freqs_in_given_dir_at_point(
+                #         filtered_df.iloc[i]["x"],
+                #         filtered_df.iloc[i]["y"],
+                #         filtered_df.iloc[i]["z"],
+                #     )[axis_index]
+                # )
         elif value == "Wr":
             fit = False
             # get the frequency in the y and z directions using get_frequencys_at_point_xyz
@@ -215,6 +254,18 @@ class sim_ploting:
                     filtered_df.iloc[i]["y"],
                     filtered_df.iloc[i]["z"],
                 )[["x", "y", "z"].index("z")]
+
+                # Wy = self.get_freqs_in_given_dir_at_point(
+                #     filtered_df.iloc[i]["x"],
+                #     filtered_df.iloc[i]["y"],
+                #     filtered_df.iloc[i]["z"],
+                # )[["x", "y", "z"].index("y")]
+                # Wz = self.get_freqs_in_given_dir_at_point(
+                #     filtered_df.iloc[i]["x"],
+                #     filtered_df.iloc[i]["y"],
+                #     filtered_df.iloc[i]["z"],
+                # )[["x", "y", "z"].index("z")]
+
                 Wr = math.sqrt((Wy**2) / 2 + (Wz**2) / 2)
                 valuess.append(Wr)
         else:
@@ -224,14 +275,27 @@ class sim_ploting:
 
         if fit:
             # now fit the data to a 4th degree polynomial
-            coeffs = np.polyfit(filtered_df[direction], valuess, 4)
+            coeffs = np.polyfit(filtered_df[direction], valuess, 2)
             poly = np.poly1d(coeffs)
-            fitted_values = poly(filtered_df[direction])
-            ax.plot(filtered_df[direction] * 1000, fitted_values, "g--")
+
+            # Now plot the raw data:
+            ax.scatter(filtered_df[direction] * 1000, valuess, s=5, c="blue")
+
+            # Now plot the fit as a curve not a line or spline or anything
+            x_vals = np.linspace(
+                np.min(filtered_df[direction]), np.max(filtered_df[direction]), num=500
+            )
+            fity = poly(x_vals)
+            print(len(x_vals), len(fity))
+            ax.plot(x_vals * 1000, fity, c="red")
+
+            # place the fit as a smooth curve equation in purple on the plot
 
             # put the x^4 coeff in the legend and the r^2 and mse values
+            fitted_values = poly(filtered_df[direction])
             r2 = r2_score(valuess, fitted_values)
-            fit_equation_x4 = f"{coeffs[0]:.2e}x^4"
+            # fit_equation_x4 = f"{coeffs[0]:.2e}x^4"
+            fit_equation_x4 = coeffs
             mse = mean_squared_error(valuess, fitted_values)
             mse_normalized = mse * 1000000 / (np.max(valuess) - np.min(valuess)) ** 2
             r2 = r2_score(valuess, fitted_values)
@@ -251,25 +315,29 @@ class sim_ploting:
 
         return fig
 
-    def get_full_report(self, name):
+    def get_main_report(self, name):
         # plots may things
         # Plot 1-3 PseudoPot in x,y,z directions (3 graphs)
         # Plot 4-6 Wx vs x Wy vs y Wz Vs z (3 graphs)
         # Plot 7 Wy vs x Wz vs x and We vs x (1 graph)
+        print("Hi1")
 
         plot1 = self.plot_value_in_blank_direction(0, 0, 0, "x", "CalcV")
 
-        plot21 = self.plot_value_in_blank_direction(0, 0, 0, "y", "CalcV")
-        plot22 = self.plot_value_in_blank_direction(0, 0, 0, "z", "CalcV")
+        plot21 = self.plot_value_in_blank_direction(
+            0, 0, 0, "y", "CalcV", y_cutoff=0.000025
+        )
+        plot22 = self.plot_value_in_blank_direction(
+            0, 0, 0, "z", "CalcV", z_cutoff=0.000025
+        )
 
         plot3 = self.plot_value_in_blank_direction(0, 0, 0, "x", "Wx")
 
-        fig41 = self.plot_value_in_blank_direction(
-            0, 0, 0, "y", "Wy", y_cutoff=0.001
-        )
-        fig42 = self.plot_value_in_blank_direction(0, 0, 0, "z", "Wz", z_cutoff=0.001)
+        fig41 = self.plot_value_in_blank_direction(0, 0, 0, "y", "Wy")
+        print("HIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")
+        fig42 = self.plot_value_in_blank_direction(0, 0, 0, "z", "Wz")
 
-        # plot fig51 and fig52 on the same plot
+        # plot fig41 and fig42 on the same plot
         plot4 = plt.figure()
         ax = plot4.add_subplot(111)
         ax.scatter(
@@ -288,6 +356,7 @@ class sim_ploting:
         ax.set_xlabel("Y, Z (mm)")
         ax.set_ylabel("Frequency in given direction")
         ax.set_title("Wy, Wz vs Y, Z")
+        # ax.set_ylim(1e6, 2.5e6)
 
         plot5 = plt.figure()
         ax = plot5.add_subplot(111)
@@ -307,6 +376,16 @@ class sim_ploting:
             self.get_frequencys_at_point_xyz(row["x"], row["y"], row["z"])[2]
             for _, row in filtered_df.iterrows()
         ]
+
+        # Wy_values = [
+        #     self.get_freqs_in_given_dir_at_point(row["x"], row["y"], row["z"])[1]
+        #     for _, row in filtered_df.iterrows()
+        # ]
+        # Wz_values = [
+        #     self.get_freqs_in_given_dir_at_point(row["x"], row["y"], row["z"])[2]
+        #     for _, row in filtered_df.iterrows()
+        # ]
+
         Wr_values = [
             math.sqrt((Wy**2) / 2 + (Wz**2) / 2) for Wy, Wz in zip(Wy_values, Wz_values)
         ]
@@ -320,6 +399,12 @@ class sim_ploting:
         ax.set_ylabel("Frequency")
         ax.set_title("Wy, Wz, Wr vs X")
 
+        plot101 = self.plot_value_in_blank_direction(0, 0, 0, "y", "Wx")
+        plot102 = self.plot_value_in_blank_direction(0, 0, 0, "y", "Wz")
+
+        plot104 = self.plot_value_in_blank_direction(0, 0, 0, "z", "Wx")
+        plot106 = self.plot_value_in_blank_direction(0, 0, 0, "z", "Wy")
+
         # saves plot 1-7 in a pdf with the name, name, and opens up a file dialgog thing to ask the user where to save
         pdf_file = "repts/" + name + ".pdf"
         with PdfPages(pdf_file) as pdf:
@@ -331,5 +416,10 @@ class sim_ploting:
             pdf.savefig(plot5)
             # pdf.savefig(plot6)
             # pdf.savefig(plot7)
+
+            pdf.savefig(plot101)
+            pdf.savefig(plot102)
+            pdf.savefig(plot104)
+            pdf.savefig(plot106)
 
         print(f"Figures saved in {pdf_file}")

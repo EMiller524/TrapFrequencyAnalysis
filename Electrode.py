@@ -4,6 +4,7 @@ import pandas as pd
 import dataextractor
 import os
 import consts
+import numexpr as ne
 
 
 class Electrode:
@@ -114,11 +115,28 @@ class Electrode:
 
         # if voltage needs to be time averaged
         else:
-            self.data["CalcV"] = self.data.apply(
-            lambda row: ((amp * amp * Q * (row["Ex"]**2 + row["Ey"]**2 + row["Ez"]**2)) / 
-                         (4* M * (freq**2))), axis=1   
-            # Pseudo potential Eq #####################################################
-        )
+            # # Vectorized calculation
+            # self.data["CalcV"] = (amp**2 * Q * (self.data["Ex"]**2 + self.data["Ey"]**2 + self.data["Ez"]**2)) / (4 * M * freq**2)
+
+            # other
+            self.data["CalcV"] = ne.evaluate(
+                "(amp**2 * Q * (Ex**2 + Ey**2 + Ez**2)) / (4 * M * freq**2)",
+                local_dict={
+                    "amp": amp,
+                    "Q": Q,
+                    "Ex": self.data["Ex"],
+                    "Ey": self.data["Ey"],
+                    "Ez": self.data["Ez"],
+                    "M": M,
+                    "freq": freq,
+                },
+            )
+
+        #     self.data["CalcV"] = self.data.apply(
+        #     lambda row: ((amp * amp * Q * (row["Ex"]**2 + row["Ey"]**2 + row["Ez"]**2)) /
+        #                  (4* M * (freq**2))), axis=1
+        #     # Pseudo potential Eq #####################################################
+        # )
 
 # rf12 = Electrode("RF12", "Simplified1")
 # rf12.change_varaibles([0, 28000000 * 2 * math.pi, 0, 0])
