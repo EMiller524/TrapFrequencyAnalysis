@@ -107,10 +107,19 @@ class Electrode:
             return
 
         # if voltage is constant
+        # if self.Frequency == 0:
+        #     self.data["CalcV"] = self.data.apply(
+        #         lambda row: amp * row["V"] + offset,
+        #         axis=1,
+        #     )
         if self.Frequency == 0:
-            self.data["CalcV"] = self.data.apply(
-                lambda row: amp * row["V"] + offset,
-                axis=1,
+            self.data["CalcV"] = ne.evaluate(
+                "amp * V + offset",
+                local_dict={
+                    "amp": amp,
+                    "V": self.data["V"],
+                    "offset": offset,
+                },
             )
 
         # if voltage needs to be time averaged

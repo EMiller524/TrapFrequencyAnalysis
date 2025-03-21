@@ -103,7 +103,6 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         """🚀 Ultra-fast method to sum CalcV over all electrodes using Pandas groupby().sum() 🚀"""
 
         print("Computing total voltage at all points...")
-
         # ✅ Step 1: Extract all electrode data **before processing**
         dfs = []
         for elec in consts.electrode_names:
@@ -120,7 +119,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         # ✅ Step 2: Concatenate all DataFrames at once (Fast!)
         merged_df = pd.concat(dfs, ignore_index=True)  # No manual merging needed!
 
-        # ✅ Step 3: Group by (x, y, z) and sum CalcV efficiently
+        # ✅ Step 3: Group by (x, y, z) and sum CalcV efficiently ##CurrentBottleNeck##
         self.total_voltage_df = merged_df.groupby(["x", "y", "z"], as_index=False)[
             "CalcV"
         ].sum()
@@ -262,16 +261,36 @@ def parallel_sort(arr, num_chunks=cpu_count()):
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn", force=True)  # ✅ Prevent reinitialization
 
-    elec_vars = consts.get_electrodvars_w_twist(377, 28000000 * 2 * math.pi, 0, 0)
-    elec_vars0 = consts.get_electrodvars_w_twist(377, 28000000 * 2 * math.pi, .275, 3)
+    elec_vars = consts.get_electrodvars_w_twist(377, 27000000 * 2 * math.pi, 0, 0)
+    elec_vars0 = consts.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -.275, 3)
 
     print("Starting simulation...")
 
     # test_sim0 = Simulation("Simp58_101", elec_vars0)
     # test_sim0.get_main_report("Test_58_101_rfonly")
     tstart = time.time()
-    test_sim1 = Simulation("Simp58_101", elec_vars)
-    test_sim1.get_main_report("Test_58_101_twist_etc_test13")
+    test_sim = Simulation("Simp58_101", elec_vars0)
+    # test_sim.get_main_report("Test_58_101_twist_etc_test21")
+    princvals, axialvals, eigenvec = test_sim.get_wy_wz_wx_at_point_withR3_fit(0, 0, 0, look_around= 10)
+    print("Principal values: ", princvals)
+    print("Axial values: ", axialvals)
+
+    princvals, axialvals, eigenvec = test_sim.get_wy_wz_wx_at_point_withR3_fit(0, 0, 0, look_around=20)
+    print("Principal values: ", princvals)
+    print("Axial values: ", axialvals)
+
+    princvals, axialvals, eigenvec = test_sim.get_wy_wz_wx_at_point_withR3_fit(0, 0, 0, look_around=40)
+    print("Principal values: ", princvals)
+    print("Axial values: ", axialvals)
+    # print(test_sim.get_wy_wz_at_point_withR2_fit(0, 0, 0, look_around=50, polyfit=4))
+    # print(test_sim.get_wy_wz_at_point_withR2_fit(0, 0, 0, look_around=500, polyfit=2))
+    # print(test_sim.get_wy_wz_at_point_withR2_fit(0, 0, 0, look_around=50, polyfit=2))
+    # print(test_sim.get_freq_in_given_direction(0, 0, 0, "x", look_around=500, polyfit=4))
+    # test_sim1 = Simulation("Simp58_101", elec_vars)
+    # test_sim1.plot_2d_contour_Vraw(0, "x")
+    # test_sim2 = Simulation("Simp58_101", elec_vars0)
+    # test_sim2.plot_2d_contour_Vraw(0, "x")
+    # test_sim1.get_main_report("Test_58_101_twist_etc_test13")
     tstop = time.time()
     print("Time taken: " + str(tstop - tstart))
 

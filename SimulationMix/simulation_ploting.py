@@ -3,30 +3,89 @@ from matplotlib import pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.metrics import r2_score, mean_squared_error
+from scipy.interpolate import griddata
 
 
 class sim_ploting:
 
     def plot_2d_contour_Vraw(self, point, axis):
-        #todo
+        # plots the raw total voltage in the plane defined by point, axis
+        # from self.total_voltage_df as a 2d contour plot
+
+        # get the data in which axis = point (i.e. if axis = 'x', then we want all points where x = point)
+        df = self.total_voltage_df.copy()
+        if axis == "x":
+            filtered_df = df[df["x"] == point]
+            axis1_label = "y"
+            axis2_label = "z"
+            axis1_data = filtered_df["y"].values
+            axis2_data = filtered_df["z"].values
+            v_data = filtered_df["CalcV"].values
+
+        elif axis == "y":
+            filtered_df = df[df["y"] == point]
+            axis1_label = "x"
+            axis2_label = "z"
+            axis1_data = filtered_df["x"].values
+            axis2_data = filtered_df["z"].values
+            v_data = filtered_df["CalcV"].values
+        elif axis == "z":
+            filtered_df = df[df["z"] == point]
+            axis1_label = "x"
+            axis2_label = "y"
+            axis1_data = filtered_df["x"].values
+            axis2_data = filtered_df["y"].values
+            v_data = filtered_df["CalcV"].values
+        
+        # Define grid for interpolation
+        xi = np.linspace(axis1_data.min(), axis1_data.max(), 1000)
+        yi = np.linspace(axis2_data.min(), axis2_data.max(), 1000)
+        X, Y = np.meshgrid(xi, yi)
+
+        # Interpolate z values on the grid
+        Z = griddata((axis1_data, axis2_data), v_data, (X, Y), method='nearest')  # Use 'linear' or 'nearest' if needed
+
+        # Plot contour
+        plt.figure(figsize=(8, 6))
+        contour_filled = plt.contourf(X, Y, Z, levels=50, cmap='viridis')  # Color map
+        plt.colorbar(contour_filled)
+
+        # Add contour lines with solid black lines
+        log_levels = np.logspace(np.log10(Z.min()+1e-12), np.log10(Z.max()), num=20)  # Avoid log(0)
+        contour_lines = plt.contour(X, Y, Z, levels=log_levels, colors='black', linewidths=.5)
+        plt.clabel(contour_lines, inline=True, fontsize=8)  # Add labels to contour lines
+
+        # Scatter original points
+        plt.scatter(axis1_data, axis2_data, c='black', s=.1, label='Data Points')
+
+        # Labels and title
+        plt.xlabel(axis1_label)
+        plt.ylabel(axis2_label)
+        plt.legend()
+        plt.title('2D Contour Plot with Contour Lines')
+
+        # Show plot
+        plt.show()
+
+        
         return
 
     def plot_2d_color_Vraw(self, point, axis):
-        #todo
+        # todo
         return
 
     def plot_3d_surface_Vraw(self, point, axis):
-        #todo
+        # todo
         return
 
     def plot_3d_contour_Vraw(self):
-        #todo
+        # todo
         return
 
     def plot_3d_color_Vraw(self):
-        #todo
+        # todo
         return
-    
+
     def plot_1d_Vraw(self, axis, x=0, y=0, z=0):
         return self.plot_value_in_blank_direction(self, x, y, z, axis, "CalcV", x_cutoff=1, y_cutoff=1, z_cutoff=1)
 

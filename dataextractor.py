@@ -8,10 +8,6 @@ import datetime
 import time
 import csv
 
-# Funtion will take in a data file with the bellow data and return a pandas dataframe with the data
-# Data in the raw data, x, y, z, V, Ex, Ey, Ez
-
-
 def extract_raw_trap_sim_data(file_path):
     """
     Extract raw data from a text file with the following columns: x, y, z, V, Ex, Ey, Ez.
@@ -84,8 +80,23 @@ def extract_raw_trap_sim_data(file_path):
 
     return df
 
+def make_simulation_dataframe(folder_path):
+    #TODO
+    """
+    Create a dataframe from all the extracted data files in a given sim.
 
-# define a fucntion that takes in a dataframe and a point and returns the electric field at that point
+    Parameters:
+    folder_path (str): The path to the folder containing the extracted data files.
+
+    Returns:
+    pd.DataFrame: DataFrame containing the combined data from all files.
+    also saves the df as a pickle thing
+    """
+    
+    return  
+
+
+## Just for testing ##
 def get_val_from_point(dataframe, x, y, z, val):
     """
     Get the electric field value (V) at a specific point (x, y, z) from the dataframe.

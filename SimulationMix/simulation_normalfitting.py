@@ -8,6 +8,7 @@ from sklearn.metrics import r2_score, mean_squared_error
 import consts
 
 class sim_normalfitting:
+
     def get_frequencys_at_point_xyz(self, x, y, z, look_around=1000, polyfit = 4):
         """
         Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
@@ -134,7 +135,7 @@ class sim_normalfitting:
             print("Total voltage data is not available.")
             return None
 
-        def fit_and_get_second_derivative_withR2(axis_values, voltage_values, plot = True):
+        def fit_and_get_second_derivative_withR2(axis_values, voltage_values, plot = False):
             """Fit a quadratic polynomial and return the second derivative at the target value."""
 
             if len(axis_values) < 4:
@@ -254,6 +255,221 @@ class sim_normalfitting:
             )
 
         return [wy, wz]
+
+    def get_wy_wz_wx_at_point_withR3_fit (self, x, y, z, look_around=20, polyfit = 4):
+
+        """
+        Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
+        to voltage values along each axis separately and extracting the second derivative.
+
+        Args:
+            x, y, z (float): The point of interest.
+            look_around (int): Number of points to consider in each direction (default 5).
+
+        Returns:
+            list: [freq_x, freq_y, freq_z]
+        """
+        look_around = look_around * 0.000001
+        if self.total_voltage_df is None:
+            print("Total voltage data is not available.")
+            return None
+
+        def fit_and_get_second_derivative_withR3(
+            axis_values, voltage_values, plot=False
+        ):
+            """Fit a quadratic polynomial and return the second derivative at the target value."""
+
+            if len(axis_values) < 4:
+                print("Not enough points for a quadratic fit along one axis.")
+                return None
+
+            # Create cubic polynomial features
+            poly = PolynomialFeatures(degree=polyfit, include_bias=True)
+            X_poly = poly.fit_transform(axis_values)
+
+            # Fit the model
+            model = LinearRegression()
+            model.fit(X_poly, voltage_values)
+            coeff = model.coef_
+            # print(poly.get_feature_names_out())
+            # print(coeff)
+
+            # get the second derivative of the polynomial at the origin
+            dd_xx = 2 * coeff[4]
+            dd_yy = 2 * coeff[7]
+            dd_zz = 2 * coeff[9]
+            dd_xy = coeff[5]
+            dd_xz = coeff[6]
+            dd_yz = coeff[8]
+
+            axial_dds = (dd_xx, dd_yy, dd_zz)
+
+            hessian = np.array([[dd_xx, dd_xy, dd_xz],
+                                [dd_xy, dd_yy, dd_yz],
+                                [dd_xz, dd_yz, dd_zz]])
+
+            diagonal_hessian = np.diagonal(hessian)
+            # print(diagonal_hessian)
+            # get the principal directions and eigenvalues of the hessian
+            eigenvalues, eigenvectors = np.linalg.eig(hessian)
+            # print(eigenvalues)
+            # print(eigenvectors)
+
+            y_pred = model.predict(X_poly)
+            r2 = r2_score(voltage_vals, y_pred)
+            mse = mean_squared_error(voltage_vals, y_pred)
+            err = (("r2", r2), ("MSE", mse))
+
+            if r2 < 0.99:
+                print(f"Warning: Low R² value ({r2:.4f}) for the polynomial fit.")
+                print(f"R²: {r2:.4f}, MSE: {mse:.4f}")
+
+            # # 3D plot
+            # plot = False
+            # if plot:
+            #     fig = plt.figure(figsize=(12, 8))
+            #     ax = fig.add_subplot(111, projection="3d")
+
+            #     # Scatter plot of the actual data points
+            #     ax.scatter(
+            #         axis_values[:, 0],
+            #         axis_values[:, 1],
+            #         voltage_values,
+            #         color="red",
+            #         label="Actual Data",
+            #     )
+
+            #     # Generate a grid of values for the surface plot
+            #     x_range = np.linspace(
+            #         min(axis_values[:, 0]), max(axis_values[:, 0]), 30
+            #     )
+            #     z_range = np.linspace(
+            #         min(axis_values[:, 1]), max(axis_values[:, 1]), 30
+            #     )
+            #     x_grid, z_grid = np.meshgrid(x_range, z_range)
+
+            #     # Compute the total polynomial fit
+            #     X_grid_poly = poly.transform(np.c_[x_grid.ravel(), z_grid.ravel()])
+            #     total_fit = model.predict(X_grid_poly).reshape(x_grid.shape)
+
+            #     # Compute the second-degree surface (X², Y², XY terms only)
+            #     second_degree_terms = (
+            #         coeff[3] * x_grid**2
+            #         + coeff[4] * x_grid * z_grid
+            #         + coeff[5] * z_grid**2
+            #     )
+
+            #     # Compute the fourth-degree surface (X⁴, Y⁴, X²Y², etc.)
+            #     fourth_degree_terms = np.zeros_like(x_grid)
+
+            #     if polyfit >= 4:
+            #         fourth_degree_terms = (
+            #             coeff[9] * x_grid**4
+            #             + coeff[10] * x_grid**3 * z_grid
+            #             + coeff[11] * x_grid**2 * z_grid**2
+            #             + coeff[12] * x_grid * z_grid**3
+            #             + coeff[13] * z_grid**4
+            #         )
+
+            #     # Plot the total polynomial fit
+            #     ax.plot_surface(
+            #         x_grid,
+            #         z_grid,
+            #         total_fit,
+            #         color="blue",
+            #         alpha=0.6,
+            #         edgecolor="k",
+            #         label="Total Fit",
+            #     )
+
+            #     # Plot the x^2 and x^4 terms separately
+            #     if polyfit >= 4:
+            #         # Plot the second-degree surface
+            #         ax.plot_surface(
+            #             x_grid,
+            #             z_grid,
+            #             second_degree_terms,
+            #             color="red",
+            #             alpha=0.6,
+            #             edgecolor="k",
+            #             label="2nd Degree Terms",
+            #         )
+
+            #         # Plot the fourth-degree surface
+            #         ax.plot_surface(
+            #             x_grid,
+            #             z_grid,
+            #             fourth_degree_terms,
+            #             color="orange",
+            #             alpha=0.6,
+            #             edgecolor="k",
+            #             label="4th Degree Terms",
+            #         )
+
+            #     ax.set_xlabel("X Axis")
+            #     ax.set_ylabel("Z Axis")
+            #     ax.set_zlabel("Voltage")
+            #     ax.set_title(
+            #         f"3D Polynomial Fit (Degree {polyfit}) - Contributions Breakdown"
+            #     )
+            #     ax.legend()
+            #     # ax.text(0.02, 0.02, s = f"R²: {err[0][1]:.4f}, MSE: {err[1][1]:.4f}", transform=ax.transAxes, fontsize=10, verticalalignment='bottom')
+            #     plt.show()
+            return eigenvalues, eigenvectors, axial_dds
+
+        df = self.total_voltage_df.copy()
+        Q = consts.ion_charge
+        M = consts.ion_mass
+
+        cutout_of_df = df[
+            (df["x"].between(x - (5*look_around), x + (5*look_around)))
+            & (df["y"].between(y - look_around, y + look_around))
+            & (df["z"].between(z - look_around, z + look_around))
+        ]
+
+        voltage_vals = cutout_of_df["CalcV"].values
+        xyz_vals_uncentered = cutout_of_df[["x", "y", "z"]].values
+
+        # Make the Point of interest the origin (0,0,0) and move the other points accordingly
+        xyz_vals_centered = xyz_vals_uncentered - [x, y, z]
+
+        # Get the second derivative
+        eigenval, eigenvec, axialdds = fit_and_get_second_derivative_withR3(xyz_vals_centered, voltage_vals)
+        xx, yy, zz = axialdds
+
+        if xx is None or yy is None or zz is None:
+            print(f"Could not calculate frequency :(")
+            return None
+        else:
+            w1 = (
+                math.copysign(1, eigenval[0])
+                * math.sqrt((Q / M) * abs(eigenval[0]))
+                / (2 * math.pi)
+            )
+
+            w2 = (
+                math.copysign(1, eigenval[1])
+                * math.sqrt((Q / M) * abs(eigenval[1]))
+                / (2 * math.pi)
+            )
+
+            w3 = (
+                math.copysign(1, eigenval[2])
+                * math.sqrt((Q / M) * abs(eigenval[2]))
+                / (2 * math.pi)
+            )
+
+            wx = (
+                math.copysign(1, xx)
+                * math.sqrt((Q / M) * abs(xx))
+                / (2 * math.pi)
+            )
+
+            wy = math.copysign(1, yy) * math.sqrt((Q / M) * abs(yy)) / (2 * math.pi)
+
+            wz = math.copysign(1, zz) * math.sqrt((Q / M) * abs(zz)) / (2 * math.pi)
+
+        return [w1, w2, w3], [wx, wy, wz], eigenvec
 
     # def get_frequencies_at_point
 
