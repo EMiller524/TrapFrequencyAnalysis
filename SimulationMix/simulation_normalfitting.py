@@ -256,7 +256,7 @@ class sim_normalfitting:
 
         return [wy, wz]
 
-    def get_wy_wz_wx_at_point_withR3_fit (self, x, y, z, look_around=20, polyfit = 4):
+    def get_wy_wz_wx_at_point_withR3_fit (self, x, y, z, look_around=80, polyfit = 4):
 
         """
         Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
@@ -269,7 +269,7 @@ class sim_normalfitting:
         Returns:
             list: [freq_x, freq_y, freq_z]
         """
-        look_around = look_around * 0.000001
+        look_around = look_around * 0.0000005
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
@@ -420,6 +420,7 @@ class sim_normalfitting:
         df = self.total_voltage_df.copy()
         Q = consts.ion_charge
         M = consts.ion_mass
+
 
         cutout_of_df = df[
             (df["x"].between(x - (5*look_around), x + (5*look_around)))

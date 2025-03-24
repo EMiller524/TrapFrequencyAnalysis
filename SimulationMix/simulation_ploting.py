@@ -4,11 +4,13 @@ import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.metrics import r2_score, mean_squared_error
 from scipy.interpolate import griddata
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.interpolate import RBFInterpolator
 
 
 class sim_ploting:
 
-    def plot_2d_contour_Vraw(self, point, axis):
+    def plot_2d_color_contour_Vraw(self, point, axis):
         # plots the raw total voltage in the plane defined by point, axis
         # from self.total_voltage_df as a 2d contour plot
 
@@ -16,27 +18,27 @@ class sim_ploting:
         df = self.total_voltage_df.copy()
         if axis == "x":
             filtered_df = df[df["x"] == point]
-            axis1_label = "y"
-            axis2_label = "z"
+            axis1_label = "y (m)"
+            axis2_label = "z (m)"
             axis1_data = filtered_df["y"].values
             axis2_data = filtered_df["z"].values
             v_data = filtered_df["CalcV"].values
 
         elif axis == "y":
             filtered_df = df[df["y"] == point]
-            axis1_label = "x"
-            axis2_label = "z"
+            axis1_label = "x (m)"
+            axis2_label = "z (m)"
             axis1_data = filtered_df["x"].values
             axis2_data = filtered_df["z"].values
             v_data = filtered_df["CalcV"].values
         elif axis == "z":
             filtered_df = df[df["z"] == point]
-            axis1_label = "x"
-            axis2_label = "y"
+            axis1_label = "x (m)"
+            axis2_label = "y (m)"
             axis1_data = filtered_df["x"].values
             axis2_data = filtered_df["y"].values
             v_data = filtered_df["CalcV"].values
-        
+
         # Define grid for interpolation
         xi = np.linspace(axis1_data.min(), axis1_data.max(), 1000)
         yi = np.linspace(axis2_data.min(), axis2_data.max(), 1000)
@@ -56,31 +58,96 @@ class sim_ploting:
         plt.clabel(contour_lines, inline=True, fontsize=8)  # Add labels to contour lines
 
         # Scatter original points
-        plt.scatter(axis1_data, axis2_data, c='black', s=.1, label='Data Points')
+        plt.scatter(axis1_data, axis2_data, c='black', s=.1)
 
         # Labels and title
         plt.xlabel(axis1_label)
         plt.ylabel(axis2_label)
-        plt.legend()
-        plt.title('2D Contour Plot with Contour Lines')
+        plt.title('2D Contour/Color Plot of TotalVoltage vs Space')
 
         # Show plot
         plt.show()
 
-        
-        return
-
-    def plot_2d_color_Vraw(self, point, axis):
-        # todo
         return
 
     def plot_3d_surface_Vraw(self, point, axis):
         # todo
         return
 
+
     def plot_3d_contour_Vraw(self):
-        # todo
         return
+        # Copy DataFrame
+        df = self.total_voltage_df.copy()
+        x_data = df["x"].values
+        y_data = df["y"].values
+        z_data = df["z"].values
+        v_data = df["CalcV"].values
+
+        # Uniformly downsample the data (keep every Nth point)
+        N = max(len(x_data) // 1000000, 10)  # Auto-tune to keep ~100K points
+        x_sample = x_data[::N]
+        y_sample = y_data[::N]
+        z_sample = z_data[::N]
+        v_sample = v_data[::N]
+
+        print(f"Reduced dataset from {len(x_data)} to {len(x_sample)} points")
+
+        # Define a coarser grid for interpolation
+        grid_size = min(30, len(x_sample) // 1000)  # Auto-tune based on sample size
+        xi = np.linspace(x_sample.min(), x_sample.max(), grid_size)
+        yi = np.linspace(y_sample.min(), y_sample.max(), grid_size)
+        zi = np.linspace(z_sample.min(), z_sample.max(), grid_size)
+
+        # Use np.mgrid for memory-efficient mesh generation
+        X, Y, Z = np.mgrid[
+            xi.min() : xi.max() : grid_size * 1j,
+            yi.min() : yi.max() : grid_size * 1j,
+            zi.min() : zi.max() : grid_size * 1j,
+        ]
+
+        # Compute a reasonable epsilon (based on mean spacing between points)
+        avg_spacing = np.mean([np.ptp(xi) / grid_size, np.ptp(yi) / grid_size, np.ptp(zi) / grid_size])
+        epsilon = avg_spacing * 2  # Scale factor to control smoothness
+
+
+        # Use RBF Interpolation (much faster than griddata)
+        interp_func = RBFInterpolator(
+            np.column_stack((x_sample, y_sample, z_sample)), v_sample, kernel="multiquadric", epsilon=epsilon
+        )
+        V_interp = interp_func(np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))).reshape(
+            X.shape
+        )
+
+        # Create figure and 3D axis
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection="3d")
+
+        # Define contour levels
+        levels = np.linspace(np.nanmin(V_interp), np.nanmax(V_interp), 10)
+
+        # Plot multiple 3D contour surfaces
+        for level in levels:
+            ax.contour3D(X, Y, Z, V_interp, levels=[level], cmap="viridis", alpha=0.6)
+
+        # Scatter original points (downsampled for visualization)
+        ax.scatter(
+            x_sample[::100],
+            y_sample[::100],
+            z_sample[::100],
+            c=v_sample[::100],
+            cmap="inferno",
+            s=5,
+            label="Downsampled Data",
+        )
+
+        # Labels and title
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title("3D Contour Plot with Memory Optimization")
+
+        return fig
 
     def plot_3d_color_Vraw(self):
         # todo

@@ -16,6 +16,8 @@ from numba import njit, prange
 import multiprocessing
 from multiprocessing import Pool, cpu_count
 from joblib import Parallel, delayed
+from scipy.interpolate import griddata
+from scipy.interpolate import RBFInterpolator
 
 
 multiprocessing.set_start_method("spawn", force=True)
@@ -32,6 +34,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         """
         Initialize the Electrode object.
         """
+        timesimstart = time.time()
         print("initializing simulation")
         self.dataset = dataset
         self.file_path = "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\"
@@ -52,11 +55,12 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
                 self.electrodes[electrode_name] = electrode_instance
 
         # self.valid_points = self.get_valid_points()
-        print("hiiii")
         self.total_voltage_df = None
         self.get_total_voltage_at_all_points()
 
-        print("simulation initialized")
+        timesimstop = time.time()
+        print("simulation initialized in " + str(timesimstop - timesimstart) + " seconds")
+        
 
     def get_variables(self, electrode):
         return self.electrode_vars.get_vars(electrode)
@@ -102,7 +106,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
     def get_total_voltage_at_all_points(self):
         """🚀 Ultra-fast method to sum CalcV over all electrodes using Pandas groupby().sum() 🚀"""
 
-        print("Computing total voltage at all points...")
+        # print("Computing total voltage at all points...")
         # ✅ Step 1: Extract all electrode data **before processing**
         dfs = []
         for elec in consts.electrode_names:
@@ -124,99 +128,124 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
             "CalcV"
         ].sum()
 
-        print("Total voltage computation complete.")
+        # print("Total voltage computation complete.")
 
-    # --- Main Optimized Function ---
-    # def get_total_voltage_at_all_points(self): ## this really shouldnt take that long its not that hard, just need to sum blank columbs over 1-11 electrodes...
-    #     """Ultra-fast method to sum CalcV across all electrodes using NumPy & Multiprocessing."""
-    #     print("Computing total voltage at all points...")
+    def find_V_min(self):
+        """
+        
+        Finds and returns the point with the minimum total voltage.
+        To catch errors, the minimum 100 points are found. If they are all close to each other, then the minimum is found.
+        If there are outliers, they are thrown out, then the minimum is found.
+        
+        MAKE FASTER!!
+        
+        """
+        timesimstart = time.time()
+        
+        if self.total_voltage_df is None:
+            print("Total voltage data not available.")
+            return None
 
-    #     # ✅ Step 1: Extract data **before multiprocessing** to prevent reinitialization
-    #     dfs = []
-    #     for elec in consts.electrode_names:
-    #         electrode_data = self.electrodes[elec].get_dataframe()
-    #         if electrode_data is not None:
-    #             dfs.append(electrode_data[["x", "y", "z", "CalcV"]].to_numpy())
+        # Sort by CalcV to find the minimum values
+        sorted_df = self.total_voltage_df.sort_values(by="CalcV").head(100)
 
-    #     if not dfs:
-    #         print("No valid electrode data found.")
-    #         return None
+        # Check proximity of the top 100 minimum points
+        points = sorted_df[["x", "y", "z"]].values
+        calcV_values = sorted_df["CalcV"].values
 
-    #     # ✅ Step 2: Convert (x, y, z) into structured NumPy arrays for fast set operations
-    #     struct_dfs = [to_structured_array(df) for df in dfs]
+        # Calculate distances between points
+        distances = np.linalg.norm(points[:, np.newaxis] - points, axis=2)
 
-    #     print("Hi3")
-    #     # ✅ Step 3: Parallelize Intersection Calculation (WITHOUT REINITIALIZING ELECTRODES)
-    #     num_workers = min(cpu_count(), len(struct_dfs))
-    #     with Pool(num_workers) as pool:
-    #         chunk_size = max(1, len(struct_dfs) // num_workers)
-    #         struct_dfs_chunks = [
-    #             struct_dfs[i : i + chunk_size]
-    #             for i in range(0, len(struct_dfs), chunk_size)
-    #         ]
-    #         results = pool.map(fast_intersection, struct_dfs_chunks)
-    #     print("hi4")
-    #     # Merge results from different workers
-    #     common_points = fast_intersection(results)
+        # Identify outliers based on distance threshold
+        threshold = np.percentile(distances, 95)
+        close_points_mask = np.all(distances < threshold, axis=1)
+        
 
-    #     print("Hi5")
-    #     # 🚀 Step 4: **Optimized Filtering Using Binary Search**
-    #     sorted_common_points = parallel_sort(common_points)
-    #     print("Hi5.5") ## bad
-    #     dfs = [
-    #         df.to_numpy() for df in dfs
-    #     ]  # Convert all to NumPy arrays before chunking
-    #     chunk_size = max(1, len(dfs) // (cpu_count() or 1))
-    #     dfs_chunks = [dfs[i:i + chunk_size] for i in range(0, len(dfs), chunk_size)]
+        # Filter out outliers
+        filtered_points = points[close_points_mask]
+        filtered_calcV = calcV_values[close_points_mask]
 
-    #     with Pool(cpu_count()) as pool:
-    #         filtered_dfs = pool.starmap(fast_filter_common, [(chunk, sorted_common_points) for chunk in dfs_chunks])
+        # Find the minimum point among the filtered points
+        min_index = np.argmin(filtered_calcV)
+        min_point = filtered_points[min_index]
 
-    #     print("Hi6")
-    #     # ✅ Step 5: Convert to NumPy Arrays & Sum `CalcV`
-    #     merged_data = np.vstack(filtered_dfs)
-    #     x_vals, y_vals, z_vals, calcV_vals = (
-    #         merged_data[:, 0],
-    #         merged_data[:, 1],
-    #         merged_data[:, 2],
-    #         merged_data[:, 3],
-    #     )
-    #     print("Hi7")
-    #     # ✅ Ensure all values are NumPy arrays
-    #     x_vals = np.asarray(x_vals).flatten()
-    #     y_vals = np.asarray(y_vals).flatten()
-    #     z_vals = np.asarray(z_vals).flatten()
-    #     calcV_vals = np.asarray(calcV_vals).flatten()
 
-    #     # ✅ Use column_stack instead of vstack
-    #     xyz_vals = np.column_stack((x_vals, y_vals, z_vals))
+        # Define the cutout grid range (4 points in each direction, total 9x9x9)
+        step_size = 0.0001  # Adjust for desired resolution
+        grid_x = np.linspace(min_point[0] - .000015, min_point[0] + .000015, 15)
+        grid_y = np.linspace(min_point[1] - .000005, min_point[1] + .000005, 15)
+        grid_z = np.linspace(min_point[2] - .000005, min_point[2] + .000005, 15)
+        
 
-    #     # ✅ Ensure all values have correct shapes
-    #     assert xyz_vals.shape[1] == 3, "Error: xyz_vals should have shape (N, 3)"
-    #     assert calcV_vals.shape[0] == xyz_vals.shape[0], "Error: Mismatch in shapes of coordinates and values."
+        # Create a data frame that includes only points within this range
+        df_cutout = self.total_voltage_df[
+            (self.total_voltage_df["x"].between(grid_x.min(), grid_x.max())) &
+            (self.total_voltage_df["y"].between(grid_y.min(), grid_y.max())) &
+            (self.total_voltage_df["z"].between(grid_z.min(), grid_z.max()))
+        ]
 
-    #     # ✅ Compute unique values
-    #     unique_coords, indices = np.unique(xyz_vals, axis=0, return_inverse=True)
+        # Extract cutout points and voltage values
+        cutout_points = df_cutout[["x", "y", "z"]].values
+        cutout_voltages = df_cutout["CalcV"].values
 
-    #     # ✅ Compute sum correctly
-    #     summed_calcV = np.bincount(indices, weights=calcV_vals)
+        if len(cutout_points) < 10:
+            print("Warning: Not enough points in cutout. Returning dataset minimum.")
+            return min_point
 
-    #     print("Hi8")
-    #     # ✅ Step 6: Convert to DataFrame (Final Output)
-    #     self.total_voltage_df = pd.DataFrame(
-    #         {
-    #             "x": unique_coords[:, 0],
-    #             "y": unique_coords[:, 1],
-    #             "z": unique_coords[:, 2],
-    #             "CalcV": summed_calcV,
-    #         }
-    #     )
 
-    #     print("Total voltage computation complete.")
+        # Generate fine grid for interpolation
+        fine_grid_x, fine_grid_y, fine_grid_z = np.mgrid[
+            grid_x.min():grid_x.max():30j,
+            grid_y.min():grid_y.max():30j,
+            grid_z.min():grid_z.max():30j
+        ]
 
+
+        # Interpolate using quadratic interpolation (griddata with cubic method) ## takes long time##
+        fine_interp = griddata(
+            cutout_points, cutout_voltages, 
+            (fine_grid_x, fine_grid_y, fine_grid_z), 
+            method='linear'
+        )
+        
+        ## just changed ##
+        
+        # rbf = RBFInterpolator(cutout_points, cutout_voltages, kernel='thin_plate_spline')
+        # fine_interp = rbf(np.vstack((fine_grid_x.ravel(), fine_grid_y.ravel(), fine_grid_z.ravel())).T)
+        # fine_interp = fine_interp.reshape(fine_grid_x.shape)
+
+
+        # Find the minimum value in the interpolated grid
+        min_index = np.unravel_index(np.nanargmin(fine_interp), fine_interp.shape)
+        refined_min_point = np.array([
+            fine_grid_x[min_index], fine_grid_y[min_index], fine_grid_z[min_index]
+        ])        
+
+        # Round refined_min_point to the nearest (1e-9 meters)
+        refined_min_point = np.round(refined_min_point, decimals=9)
+        
+        timestop = time.time()
+        print("find_V_min took: " + str(timestop - timesimstart) + " seconds")
+
+        
+
+        return refined_min_point, min_point
+
+    def get_principal_freq_at_min(self):
+        min1, min2 = self.find_V_min()
+        eigenfreq, axialfreq, eigendir = self.get_wy_wz_wx_at_point_withR3_fit(
+            min1[0], min1[1], min1[2], look_around=50, polyfit=4
+        )
+
+        # Convert eigenvectors into a readable format
+        eigendir_readable = {
+            f"Direction {i+1}": f"({vec[0]:.3f}, {vec[1]:.3f}, {vec[2]:.3f})"
+            for i, vec in enumerate(eigendir.T)  # Transpose so each column is an eigenvector
+    }
+
+        return eigenfreq, eigendir_readable
 
 # --- Helper Functions (Must Be Top-Level for Multiprocessing) ---
-
 
 def to_structured_array(df):
     """Converts a NumPy array to a structured array for fast intersections."""
@@ -257,246 +286,110 @@ def parallel_sort(arr, num_chunks=cpu_count()):
     return np.concatenate(sorted_chunks)
 
 
+def recreate_old_data(rfamp, rffreq, twist, endcaps):
+
+    x_pos = []
+    Radial1 = []
+    Radial2 = []
+    Axial = []
+    x_push = 0
+    while True:
+        test_sim_l = Simulation(
+            "Simp58_101",
+            consts.get_electrodvars_w_twist_and_push(rfamp, rffreq, twist=twist, endcaps=endcaps, pushx = x_push),
+        )
+        min_l = test_sim_l.find_V_min()
+        print("min_l_x: ", min_l[0][0])
+
+        test_sim_r = Simulation(
+            "Simp58_101",
+            consts.get_electrodvars_w_twist_and_push(rfamp, rffreq, twist=twist, endcaps=endcaps, pushx=-x_push),
+        )
+        min_r = test_sim_r.find_V_min()
+        # print("min_r: ", min_r)
+
+        print()
+
+        if min_l is None or min_r is None:
+            print("No minimum found, stopping.")
+            break
+        if min_l[0][0] > 0.0002:
+            print("Minimum too far from origin, stopping.")
+            break
+        if x_push > 3:
+            print("Push too large, stopping.")
+            break
+        else:
+            x_pos.append(min_l[0][0])
+            freqs_l = test_sim_l.get_principal_freq_at_min()
+            Radial1.append(freqs_l[0][1])
+            Radial2.append(freqs_l[0][2])
+            Axial.append(freqs_l[0][0])
+
+            x_pos.append(min_r[0][0])
+            freqs_r = test_sim_r.get_principal_freq_at_min()
+            Radial1.append(freqs_r[0][1])
+            Radial2.append(freqs_r[0][2])
+            Axial.append(freqs_r[0][0])
+
+            x_push += 0.2
+
+    # Plot x_pos vs Radial1 and Radial2 and Axial but have Radial 1 and 2 share an axis and Axial on the other
+    fig, ax1 = plt.subplots()
+    ax2 = ax1.twinx()
+    ax1.scatter(x_pos, Radial1, label="Radial1", color="red")
+    ax1.scatter(x_pos, Radial2, label="Radial2", color="blue")
+    ax2.scatter(x_pos, Axial, label="Axial", color="green")
+    ax1.set_xlabel("x_pos")
+    ax1.set_ylabel("Radial Frequency (Hz)")
+    ax2.set_ylabel("Axial Frequency (Hz)")
+    ax1.legend(loc="upper left")
+    ax2.legend(loc="upper right")
+    plt.show()
+
 # ✅ Make sure all simulation execution happens **inside** `if __name__ == "__main__"`
 if __name__ == "__main__":
+    tstart = time.time()
     multiprocessing.set_start_method("spawn", force=True)  # ✅ Prevent reinitialization
 
-    elec_vars = consts.get_electrodvars_w_twist(377, 27000000 * 2 * math.pi, 0, 0)
-    elec_vars0 = consts.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -.275, 3)
+    elec_var0 = consts.get_electrodvars_w_twist(377, 28000000 * 2 * math.pi, 0, 0)
+    elec_var1 = consts.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -.275, 2.5)
+    elec_var2 = consts.get_electrodvars_w_twist_and_push(377, 28000000 * 2 * math.pi, -.275, 2, 2)
 
-    print("Starting simulation...")
 
-    # test_sim0 = Simulation("Simp58_101", elec_vars0)
-    # test_sim0.get_main_report("Test_58_101_rfonly")
-    tstart = time.time()
-    test_sim = Simulation("Simp58_101", elec_vars0)
-    # test_sim.get_main_report("Test_58_101_twist_etc_test21")
-    princvals, axialvals, eigenvec = test_sim.get_wy_wz_wx_at_point_withR3_fit(0, 0, 0, look_around= 10)
-    print("Principal values: ", princvals)
-    print("Axial values: ", axialvals)
+    test_sim_2nd = Simulation(
+        "Simp58_101",
+        elec_var1,
+    )
+    
+    print(test_sim_2nd.get_principal_freq_at_min())
 
-    princvals, axialvals, eigenvec = test_sim.get_wy_wz_wx_at_point_withR3_fit(0, 0, 0, look_around=20)
-    print("Principal values: ", princvals)
-    print("Axial values: ", axialvals)
 
-    princvals, axialvals, eigenvec = test_sim.get_wy_wz_wx_at_point_withR3_fit(0, 0, 0, look_around=40)
-    print("Principal values: ", princvals)
-    print("Axial values: ", axialvals)
-    # print(test_sim.get_wy_wz_at_point_withR2_fit(0, 0, 0, look_around=50, polyfit=4))
-    # print(test_sim.get_wy_wz_at_point_withR2_fit(0, 0, 0, look_around=500, polyfit=2))
-    # print(test_sim.get_wy_wz_at_point_withR2_fit(0, 0, 0, look_around=50, polyfit=2))
-    # print(test_sim.get_freq_in_given_direction(0, 0, 0, "x", look_around=500, polyfit=4))
-    # test_sim1 = Simulation("Simp58_101", elec_vars)
-    # test_sim1.plot_2d_contour_Vraw(0, "x")
-    # test_sim2 = Simulation("Simp58_101", elec_vars0)
-    # test_sim2.plot_2d_contour_Vraw(0, "x")
-    # test_sim1.get_main_report("Test_58_101_twist_etc_test13")
+    # min_normal = test_sim_normal.find_V_min()[0]
+    # miny1 = test_sim_y_push_1.find_V_min()[0]
+    # miny2 = test_sim_y_push_2.find_V_min()[0]
+    # miny3 = test_sim_y_push_3.find_V_min()[0]
+    # minz1 = test_sim_z_push_1.find_V_min()[0]
+    # minz2 = test_sim_z_push_2.find_V_min()[0]
+    # minz3 = test_sim_z_push_3.find_V_min()[0]
+
+    # freqs_normal = test_sim_normal.get_principal_freq_at_min()[0]
+    # freqs_y1 = test_sim_y_push_1.get_principal_freq_at_min()[0]
+    # freqs_y2 = test_sim_y_push_2.get_principal_freq_at_min()[0]
+    # freqs_y3 = test_sim_y_push_3.get_principal_freq_at_min()[0]
+    # freqs_z1 = test_sim_z_push_1.get_principal_freq_at_min()[0]
+    # freqs_z2 = test_sim_z_push_2.get_principal_freq_at_min()[0]
+    # freqs_z3 = test_sim_z_push_3.get_principal_freq_at_min()[0]
+
+    # # Print results
+    # print("normal min: " + str(min_normal) + "freqs: " + str(freqs_normal))
+    # print("y push 1 min: " + str(miny1) + "freqs: " + str(freqs_y1))
+    # print("y push 2 min: " + str(miny2) + "freqs: " + str(freqs_y2))
+    # print("y push 3 min: " + str(miny3) + "freqs: " + str(freqs_y3))
+    # print("z push 1 min: " + str(minz1) + "freqs: " + str(freqs_z1))
+    # print("z push 2 min: " + str(minz2) + "freqs: " + str(freqs_z2))
+    # print("z push 3 min: " + str(minz3) + "freqs: " + str(freqs_z3))
+
     tstop = time.time()
     print("Time taken: " + str(tstop - tstart))
 
-    # test_sim.get_main_report("Test_hyper2_lookarond100_poly4")
-    # test_sim.compute_all_frequencies()
-
-    # test_sim = Simulation("Simp58_2", elec_vars)
-    # width = 140
-
-    # freqsss_2 = [
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.05), polyfit=2
-    #     )
-    #     + [int(width * 0.05)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.1), polyfit=2
-    #     )
-    #     + [int(width * 0.1)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.16), polyfit=2
-    #     )
-    #     + [int(width * 0.16)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.165), polyfit=2
-    #     )
-    #     + [int(width * 0.165)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.17), polyfit=2
-    #     )
-    #     + [int(width * 0.17)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.18), polyfit=2
-    #     )
-    #     + [int(width * 0.18)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.2), polyfit=2
-    #     )
-    #     + [int(width * 0.2)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.3), polyfit=2
-    #     )
-    #     + [int(width * 0.3)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.4), polyfit=2
-    #     )
-    #     + [int(width * 0.4)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.5), polyfit=2
-    #     )
-    #     + [int(width * 0.5)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.6), polyfit=2
-    #     )
-    #     + [int(width * 0.6)],
-    # ]
-
-    # print("HIIIIIIIIIIII2.022.0")
-
-    # freqsss_4 = [
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.05), polyfit=4
-    #     )
-    #     + [int(width * 0.05)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.1), polyfit=4
-    #     )
-    #     + [int(width * 0.1)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.16), polyfit=4
-    #     )
-    #     + [int(width * 0.16)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.165), polyfit=4
-    #     )
-    #     + [int(width * 0.165)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.17), polyfit=4
-    #     )
-    #     + [int(width * 0.17)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.18), polyfit=4
-    #     )
-    #     + [int(width * 0.18)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.2), polyfit=4
-    #     )
-    #     + [int(width * 0.2)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.3), polyfit=4
-    #     )
-    #     + [int(width * 0.3)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.4), polyfit=4
-    #     )
-    #     + [int(width * 0.4)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.5), polyfit=4
-    #     )
-    #     + [int(width * 0.5)],
-    #     test_sim.get_wy_wz_at_point_withR2_fit(
-    #         0, 0, 0, look_around=int(width * 0.6), polyfit=4
-    #     )
-    #     + [int(width * 0.6)],
-    # ]
-
-    # freq_yz_diff_2 = []
-    # look_around_2 = []
-    # for freq in freqsss_2:
-    #     freq_yz_diff_2.append(freq[0] - freq[1])
-    #     look_around_2.append(freq[2])
-
-    # freq_yz_diff_4 = []
-    # look_around_4 = []
-    # for freq in freqsss_4:
-    #     freq_yz_diff_4.append(freq[0] - freq[1])
-    #     look_around_4.append(freq[2])
-
-    # # Now we plot Wy - Wz vs look around for 2, and 4 (2 plots on graph)
-    # plt.plot(look_around_2, freq_yz_diff_2, 'o', label="Polyfit 2")
-    # plt.plot(look_around_4, freq_yz_diff_4, 'o', label="Polyfit 4")
-    # plt.title("Frequency Difference (Hz) vs Look Around for various deg fits")
-    # plt.xlabel("Look Around")
-    # plt.ylabel("Frequency Difference (Hz)")
-    # plt.legend()
-
-    # plt.show()
-
-    #####################################################
-
-    # # Then for each look around we plot wy-wz for 2 and for 4 (1 plot)
-    # for idx in range(len(freq_yz_diff_2)):
-
-    # freq_x = []
-    # freq_y = []
-    # freq_z = []
-    # look_around = []
-    # for freq in freqsss:
-    #     freq_x.append(freq[0])
-    #     freq_y.append(freq[1])
-    #     freq_z.append(freq[2])
-    #     look_around.append(freq[3])
-
-    # # plt.plot(look_around, freq_x, label="x")
-    # plt.plot(look_around, freq_y, label="y")
-    # plt.plot(look_around, freq_z, label="z")
-    # plt.xlabel("Look Around")
-    # plt.ylabel("Frequency (Hz)")
-    # plt.legend()
-    # plt.show()
-
-
-# elec_vars = consts.Electrode_vars()
-# elec_vars.set_vars("RF12", [377, 28000000 * 2 * math.pi, 0, 0])
-# test_sim = Simulation("Simp58_3", elec_vars)
-# test_sim.get_full_report("Test_new_58_201")
-# print(test_sim.get_frequencys_at_point_xyz(0, 0, 0))
-
-
-# elec_vars.set_vars("DC1", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC5", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC6", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC10", [-1, 0, 0, 0])
-
-# elec_vars.set_vars("DC2", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC4", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC7", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC9", [-1, 0, 0, 0])
-
-# elec_vars.set_vars("DC8", [-1, 0, 0, 0])
-# elec_vars.set_vars("DC3", [-1, 0, 0, 0])
-
-
-# test_sim = Simulation("Simp89", elec_vars)
-# test_sim.get_full_report("Simp89(000)_377_28_DC_Grounded_NotCaught_RF_test")
-# test_sim = Simulation("Simp875", elec_vars)
-# test_sim.get_full_report("Simp875(000)_377_28_DC_Grounded_NotCaught_RF_test")
-# # test_sim = Simulation("Simp85", elec_vars)
-# test_sim.get_full_report("Simp85(000)_377_28_DC_Grounded_NotCaught_RF_test")
-# test_sim = Simulation("Simp80", elec_vars)
-# test_sim.get_full_report("Simp80(000)_377_28_DC_Grounded_NotCaught_RF_test")
-# test_sim = Simulation("Simp75", elec_vars)
-# test_sim.get_full_report("Simp75(000)_377_28_DC_Grounded_NotCaught_RF_test")
-# fig1 = test_sim.plot_value_in_blank_direction(0,0,0,"y",'Emag')
-# plt.show()
-
-# test_sim = Simulation("Simp90", elec_vars)
-# test_sim.get_full_report("Simp90(000)_377_28_DC_Grounded_NotCaught_RF_test")
-
-
-# fig1 = test_sim.plot_potential_in_xyz_directions(0, 0, 0)
-# fig2 = test_sim.plot_potential_in_xyz_directions(0, 0, 0, 0.0003, 0.00005, 0.00005)s
-
-# fig3 = test_sim.plot_freq_in_xyz_directions(0, 0, 0)
-# fig4 = test_sim.plot_freq_in_xyz_directions(0, 0, 0, 0.0003, 0.00005, 0.00005)
-# plt.show()
-
-
-# Other todo
-# Get the data again from comsol (grounded vs not??, added vs not??) (Yes)
-# Clean up code, make the "catch RF" more robust
-# Make a ploting class?
-# Find ways to make the code run faster!!!
-# find out if the (+) and (-) x^4 coeffs on the quartic fit is an error... (Ughhhhhhhhh)
-
-# Hessian bullshit
-# freq = test_sim.get_frequencys_at_point_hess(0, .00005, 0.00002)
-# print('For point 0, 0, 0')
-# for i in range(3):
-#     print("Frequency in direction " + str(freq[i][1]) + " is " + str(freq[i][0]) + " Hz")

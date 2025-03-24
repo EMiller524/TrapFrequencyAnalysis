@@ -21,8 +21,8 @@ print_numbers_separated_by_distance(0.000125, 640)
 
 # Grid 1
 # X --> print_numbers_separated_by_distance(0.01, 80)
-# Y --> print_numbers_separated_by_distance(0.0005, 140)
-# Z --> print_numbers_separated_by_distance(0.0005, 140)
+# Y --> print_numbers_separated_by_distance(0.0005, 160)
+# Z --> print_numbers_separated_by_distance(0.0005, 160)
 
 # Grid 2
 # X --> print_numbers_separated_by_distance(0.005, 160)

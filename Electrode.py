@@ -19,7 +19,7 @@ class Electrode:
         - data (pd.DataFrame, optional): A pandas DataFrame containing relevant electrode data.
         """
         start = time.time()
-        print("electrode init started")
+        # print("electrode init started")
         self.name = name
         self.file_path = (
             "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\" + self.name
@@ -59,7 +59,7 @@ class Electrode:
         self.get_potential_at_all_points()
 
         end = time.time()
-        print("electrode init done" + str(end - start))
+        # print("electrode init done" + str(end - start))
 
     def get_dataframe(self):
         return self.data

@@ -83,3 +83,29 @@ def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
                           RF1=RF1,
                           RF2=RF2,
                           RF12=RF12)
+
+def get_electrodvars_w_twist_and_push(rfamp, rffreq, twist = 0, endcaps = 0, pushx = 0, pushy = 0, pushz = 0):
+    regular_twist = get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps)
+
+    # pushx
+    regular_twist.vars["DC1"][0] -= pushx
+    regular_twist.vars["DC10"][0] -= pushx
+    regular_twist.vars["DC6"][0] += pushx
+    regular_twist.vars["DC5"][0] += pushx
+
+    # pushy and pushz
+    regular_twist.vars["DC1"][0] += (pushy - pushz)
+    regular_twist.vars["DC2"][0] += (pushy - pushz)
+    regular_twist.vars["DC3"][0] += (pushy - pushz)
+    regular_twist.vars["DC4"][0] += (pushy - pushz)
+    regular_twist.vars["DC5"][0] += (pushy - pushz)
+    regular_twist.vars["DC6"][0] += (-pushy + pushz)
+    regular_twist.vars["DC7"][0] += (-pushy + pushz)
+    regular_twist.vars["DC8"][0] += (-pushy + pushz)
+    regular_twist.vars["DC9"][0] += (-pushy + pushz)
+    regular_twist.vars["DC10"][0] += (-pushy + pushz)
+    regular_twist.vars["RF1"][0] += (pushy + pushz)
+    regular_twist.vars["RF2"][0] += (-pushy - pushz)
+
+
+    return regular_twist

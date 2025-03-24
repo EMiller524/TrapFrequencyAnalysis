@@ -12,7 +12,7 @@ import consts
     # maybe all just get calculated in dataextractor??
 # For now we work under the assumption that only RF12 can have RF
 
-class sim_df_maneger:
+class sim_df_manager:
     
     def init_data_frame(self, electrode_vars = None):
         if electrode_vars is None:
