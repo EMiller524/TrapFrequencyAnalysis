@@ -1,5 +1,7 @@
+from itertools import combinations_with_replacement
 import math
 import random
+import time
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from matplotlib import pyplot as plt
@@ -74,7 +76,6 @@ class sim_normalfitting:
 
             return second_derivative_at_target
 
-        df = self.total_voltage_df.copy()
         Q = consts.ion_charge
         M = consts.ion_mass
         frequencies = []
@@ -83,16 +84,25 @@ class sim_normalfitting:
             # Get axis values and voltage values around the point of interest while holding other coordinates constant
             ploot = True
             if axis == "x":
-                filtered_df = df[(df["y"] == y) & (df["z"] == z)]
+                filtered_df = self.total_voltage_df[
+                    (self.total_voltage_df["y"] == y)
+                    & (self.total_voltage_df["z"] == z)
+                ]
                 ploot = False
             elif axis == "y":
-                filtered_df = df[(df["x"] == x) & (df["z"] == z)]
+                filtered_df = self.total_voltage_df[
+                    (self.total_voltage_df["x"] == x)
+                    & (self.total_voltage_df["z"] == z)
+                ]
             else:  # axis == 'z'
-                filtered_df = df[(df["x"] == x) & (df["y"] == y)]
+                filtered_df = self.total_voltage_df[
+                    (self.total_voltage_df["x"] == x)
+                    & (self.total_voltage_df["y"] == y)
+                ]
 
             sorted_df = filtered_df.sort_values(by=[axis])
             axis_vals = sorted_df[axis].values
-            voltage_vals = sorted_df["CalcV"].values
+            voltage_vals = sorted_df["TotalV"].values
 
             # Get the points of interest
             closest_idx = np.searchsorted(axis_vals, eval(axis))
@@ -214,20 +224,19 @@ class sim_normalfitting:
                 plt.show()
             return ydd, zdd
 
-        df = self.total_voltage_df.copy()
         Q = consts.ion_charge
         M = consts.ion_mass
 
-        filtered_df = df[(df["x"] == x)]
+        filtered_df = self.total_voltage_df[(self.total_voltage_df["x"] == x)]
 
-        look_around_val = look_around * 0.0000005
+        look_around_val = look_around * 0.000001
 
         cutout_of_df = filtered_df[
             (filtered_df["y"].between(y - look_around_val, y + look_around_val))
             & (filtered_df["z"].between(z - look_around_val, z + look_around_val))
         ]
 
-        voltage_vals = cutout_of_df["CalcV"].values
+        voltage_vals = cutout_of_df["TotalV"].values
         yz_vals_uncentered = cutout_of_df[["y", "z"]].values
 
         # Make the Point of interest the origin (0,0,0) and move the other points accordingly
@@ -269,7 +278,8 @@ class sim_normalfitting:
         Returns:
             list: [freq_x, freq_y, freq_z]
         """
-        look_around = look_around * 0.0000005
+        time1 = time.time()
+        look_around = look_around * 0.000001
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
@@ -278,10 +288,12 @@ class sim_normalfitting:
             axis_values, voltage_values, plot=False
         ):
             """Fit a quadratic polynomial and return the second derivative at the target value."""
-
             if len(axis_values) < 4:
                 print("Not enough points for a quadratic fit along one axis.")
                 return None
+
+            # print how many data points are being considered
+            # print(f"Number of data points considered: {len(axis_values)}")
 
             # Create cubic polynomial features
             poly = PolynomialFeatures(degree=polyfit, include_bias=True)
@@ -289,7 +301,7 @@ class sim_normalfitting:
 
             # Fit the model
             model = LinearRegression()
-            model.fit(X_poly, voltage_values)
+            model.fit(X_poly, voltage_values)            
             coeff = model.coef_
             # print(poly.get_feature_names_out())
             # print(coeff)
@@ -320,120 +332,52 @@ class sim_normalfitting:
             mse = mean_squared_error(voltage_vals, y_pred)
             err = (("r2", r2), ("MSE", mse))
 
-            if r2 < 0.99:
+            if r2 < 0.999:
                 print(f"Warning: Low R² value ({r2:.4f}) for the polynomial fit.")
                 print(f"R²: {r2:.4f}, MSE: {mse:.4f}")
 
-            # # 3D plot
-            # plot = False
-            # if plot:
-            #     fig = plt.figure(figsize=(12, 8))
-            #     ax = fig.add_subplot(111, projection="3d")
-
-            #     # Scatter plot of the actual data points
-            #     ax.scatter(
-            #         axis_values[:, 0],
-            #         axis_values[:, 1],
-            #         voltage_values,
-            #         color="red",
-            #         label="Actual Data",
-            #     )
-
-            #     # Generate a grid of values for the surface plot
-            #     x_range = np.linspace(
-            #         min(axis_values[:, 0]), max(axis_values[:, 0]), 30
-            #     )
-            #     z_range = np.linspace(
-            #         min(axis_values[:, 1]), max(axis_values[:, 1]), 30
-            #     )
-            #     x_grid, z_grid = np.meshgrid(x_range, z_range)
-
-            #     # Compute the total polynomial fit
-            #     X_grid_poly = poly.transform(np.c_[x_grid.ravel(), z_grid.ravel()])
-            #     total_fit = model.predict(X_grid_poly).reshape(x_grid.shape)
-
-            #     # Compute the second-degree surface (X², Y², XY terms only)
-            #     second_degree_terms = (
-            #         coeff[3] * x_grid**2
-            #         + coeff[4] * x_grid * z_grid
-            #         + coeff[5] * z_grid**2
-            #     )
-
-            #     # Compute the fourth-degree surface (X⁴, Y⁴, X²Y², etc.)
-            #     fourth_degree_terms = np.zeros_like(x_grid)
-
-            #     if polyfit >= 4:
-            #         fourth_degree_terms = (
-            #             coeff[9] * x_grid**4
-            #             + coeff[10] * x_grid**3 * z_grid
-            #             + coeff[11] * x_grid**2 * z_grid**2
-            #             + coeff[12] * x_grid * z_grid**3
-            #             + coeff[13] * z_grid**4
-            #         )
-
-            #     # Plot the total polynomial fit
-            #     ax.plot_surface(
-            #         x_grid,
-            #         z_grid,
-            #         total_fit,
-            #         color="blue",
-            #         alpha=0.6,
-            #         edgecolor="k",
-            #         label="Total Fit",
-            #     )
-
-            #     # Plot the x^2 and x^4 terms separately
-            #     if polyfit >= 4:
-            #         # Plot the second-degree surface
-            #         ax.plot_surface(
-            #             x_grid,
-            #             z_grid,
-            #             second_degree_terms,
-            #             color="red",
-            #             alpha=0.6,
-            #             edgecolor="k",
-            #             label="2nd Degree Terms",
-            #         )
-
-            #         # Plot the fourth-degree surface
-            #         ax.plot_surface(
-            #             x_grid,
-            #             z_grid,
-            #             fourth_degree_terms,
-            #             color="orange",
-            #             alpha=0.6,
-            #             edgecolor="k",
-            #             label="4th Degree Terms",
-            #         )
-
-            #     ax.set_xlabel("X Axis")
-            #     ax.set_ylabel("Z Axis")
-            #     ax.set_zlabel("Voltage")
-            #     ax.set_title(
-            #         f"3D Polynomial Fit (Degree {polyfit}) - Contributions Breakdown"
-            #     )
-            #     ax.legend()
-            #     # ax.text(0.02, 0.02, s = f"R²: {err[0][1]:.4f}, MSE: {err[1][1]:.4f}", transform=ax.transAxes, fontsize=10, verticalalignment='bottom')
-            #     plt.show()
             return eigenvalues, eigenvectors, axial_dds
 
-        df = self.total_voltage_df.copy()
         Q = consts.ion_charge
         M = consts.ion_mass
+        
+        time2 = time.time()
 
+        # cutout_of_df = self.total_voltage_df[
+        #     (
+        #         self.total_voltage_df["x"].between(
+        #             x - (5 * look_around), x + (5 * look_around)
+        #         )
+        #     )
+        #     & (self.total_voltage_df["y"].between(y - look_around, y + look_around))
+        #     & (self.total_voltage_df["z"].between(z - look_around, z + look_around))
+        # ]
+        df = self.total_voltage_df
 
-        cutout_of_df = df[
-            (df["x"].between(x - (5*look_around), x + (5*look_around)))
-            & (df["y"].between(y - look_around, y + look_around))
-            & (df["z"].between(z - look_around, z + look_around))
-        ]
+        x_arr = df["x"].to_numpy()
+        y_arr = df["y"].to_numpy()
+        z_arr = df["z"].to_numpy()
 
-        voltage_vals = cutout_of_df["CalcV"].values
+        xmin, xmax = x - 5*look_around, x + 5*look_around
+        ymin, ymax = y - look_around,  y + look_around
+        zmin, zmax = z - look_around,  z + look_around
+
+        mask = (
+            (x_arr >= xmin) & (x_arr <= xmax) &
+            (y_arr >= ymin) & (y_arr <= ymax) &
+            (z_arr >= zmin) & (z_arr <= zmax)
+        )
+
+        cutout_of_df = df.iloc[mask]
+
+        
+        time3 = time.time()
+
+        voltage_vals = cutout_of_df["TotalV"].values
         xyz_vals_uncentered = cutout_of_df[["x", "y", "z"]].values
 
         # Make the Point of interest the origin (0,0,0) and move the other points accordingly
         xyz_vals_centered = xyz_vals_uncentered - [x, y, z]
-
         # Get the second derivative
         eigenval, eigenvec, axialdds = fit_and_get_second_derivative_withR3(xyz_vals_centered, voltage_vals)
         xx, yy, zz = axialdds
@@ -470,6 +414,13 @@ class sim_normalfitting:
 
             wz = math.copysign(1, zz) * math.sqrt((Q / M) * abs(zz)) / (2 * math.pi)
 
+        time4 = time.time()
+        
+        print(f"Time taken for data extraction: {time2 - time1:.4f} seconds")
+        print(f"Time taken for filtering: {time3 - time2:.4f} seconds")
+        print(f"Time taken for fitting: {time4 - time3:.4f} seconds")
+        print(f"Time taken for total: {time4 - time1:.4f} seconds")
+        
         return [w1, w2, w3], [wx, wy, wz], eigenvec
 
     # def get_frequencies_at_point

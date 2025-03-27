@@ -7,6 +7,7 @@ import re
 import datetime
 import time
 import csv
+import consts
 
 def extract_raw_trap_sim_data(file_path):
     """
@@ -81,7 +82,7 @@ def extract_raw_trap_sim_data(file_path):
     return df
 
 def make_simulation_dataframe(folder_path):
-    #TODO
+    # TODO
     """
     Create a dataframe from all the extracted data files in a given sim.
 
@@ -92,9 +93,72 @@ def make_simulation_dataframe(folder_path):
     pd.DataFrame: DataFrame containing the combined data from all files.
     also saves the df as a pickle thing
     """
-    
-    return  
 
+    # for each txt file in folder_path check if the corresponding csv file exists, if it does skip this txt file
+    # if it does not exist, extract the data from the txt file and save it as a csv file using the extract_raw_trap_sim_data function
+    for file in os.listdir(folder_path):
+        if file.endswith(".txt"):
+            csv_file = os.path.join(folder_path, file.replace("_Raw.txt", "_extracted.csv"))
+            if not os.path.exists(csv_file):
+                extract_raw_trap_sim_data(os.path.join(folder_path, file))
+
+    # Now we shall merge these dataframes into a single dataframe
+    # This data frame columns will be ["x", "y", "z", and then for each electrode in the simulation, "V", "Ex", "Ey", "Ez" for each electrode] ex: RF1_V, RF1_Ex, RF1_Ey, RF1_Ez, etc.
+    # The data frame will also have a column for TotalV
+    # We will also give the dataframe an atrabute called electrode_vars, which will be None for now
+
+    # init the dataframe
+    df = pd.DataFrame()
+    # get the list of all csv files in the folder
+    csv_files = [f for f in os.listdir(folder_path) if f.endswith("_extracted.csv")]
+    # print(f"Found {len(csv_files)} csv files in {folder_path}")
+    # print(f"csv files: {csv_files}")
+    # for each csv file, read it and append it to the dataframe
+    names_of_electodes = []  # to keep track of electrode names for later use
+    for csv_file in csv_files:
+        # Extract the electrode name from the file name
+        electrode_name = os.path.basename(csv_file).split("_")[
+            0
+        ]  # Adjust the split logic based on your file naming convention
+
+        # read the csv file
+        file_path = os.path.join(folder_path, csv_file)
+        temp_df = pd.read_pickle(file_path)
+
+        # Rename the columns for V, Ex, Ey, Ez
+        temp_df.rename(
+            columns={
+                "V": f"{electrode_name}_V",
+                "Ex": f"{electrode_name}_Ex",
+                "Ey": f"{electrode_name}_Ey",
+                "Ez": f"{electrode_name}_Ez",
+            },
+            inplace=True,
+        )
+
+        names_of_electodes.append(electrode_name)  # add the electrode name to the list
+
+        # Merge it with the main dataframe on x, y, z columns using inner join
+        if df.empty:
+            df = temp_df
+        else:
+            df = pd.merge(df, temp_df, on=["x", "y", "z"], how="inner")
+
+    df["TotalV"] = np.nan
+
+    # Add custom attributes using the attrs property
+    df.attrs['electrode_names'] = names_of_electodes
+    df.attrs['electrode_vars'] = consts.Electrode_vars()
+    df.attrs['name'] = os.path.basename(folder_path)
+
+    # Save the combined dataframe as a pickle file
+    df.to_pickle(os.path.join(folder_path, "combined_dataframe.csv"))
+    
+    # print the number of points in the dataframe
+    print(f"Number of points in the dataframe: {len(df)}")
+    print(f"Dataframe shape: {df.shape}")
+
+    return df
 
 ## Just for testing ##
 def get_val_from_point(dataframe, x, y, z, val):
@@ -161,11 +225,5 @@ def get_all_from_point(dataframe, x, y, z):
 def get_set_of_points(dataframe):
     return set(zip(dataframe["x"], dataframe["y"], dataframe["z"]))
 
-
-# dataframe = pd.read_pickle(
-#     "C:\GitHub\TrapFrequencyAnalysis\Data\Simplified1\RF12_extracted.csv"
-# )
-
-# print(get_set_of_points(dataframe))
-
-# extract_raw_trap_sim_data("C:\\GitHub\\TrapFrequencyAnalysis\\Data\\Simplified1\\RF12_Raw.txt")
+# print("HI")
+# make_simulation_dataframe("C:\GitHub\TrapFrequencyAnalysis\Data\Simp58_101_copy")
