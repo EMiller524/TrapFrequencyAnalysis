@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import dataextractor
-import consts
+import constants
 import Electrode
 import time
 import matplotlib.cm as cm
@@ -22,6 +22,7 @@ from joblib import Parallel, delayed
 from scipy.interpolate import griddata
 from scipy.interpolate import RBFInterpolator
 import numexpr as ne
+import electrode_vars as evars
 
 
 multiprocessing.set_start_method("spawn", force=True)
@@ -34,7 +35,7 @@ multiprocessing.set_start_method("spawn", force=True)
 
 
 class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
-    def __init__(self, dataset, variables=consts.Electrode_vars()):
+    def __init__(self, dataset, variables=evars.Electrode_vars()):
         """
         Initialize the Electrode object.
         """
@@ -130,7 +131,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
 
         evaluation_pseudo_part = (
             "("
-            + str(consts.ion_charge)
+            + str(constants.ion_charge)
             + " * (("
             + eval_ex_str
             + ")**2 + ("
@@ -138,7 +139,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
             + ")**2 + ("
             + eval_ez_str
             + ")**2) / (4 * "
-            + str(consts.ion_mass)
+            + str(constants.ion_mass)
             + " * "
             + str(self.electrode_vars.get_frequency("RF1") ** 2)
             + "))"
@@ -204,7 +205,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
 
         return
 
-    def change_electrode_variables(self, new_vars: consts.Electrode_vars):
+    def change_electrode_variables(self, new_vars: evars.Electrode_vars):
         self.electrode_vars = new_vars
         self.update_total_voltage()
 
@@ -329,10 +330,10 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
 
         return best_fit_minimum, min_point
 
-    def get_principal_freq_at_min(self, getmintoo = False):
+    def get_principal_freq_at_min(self, getmintoo = False, fitdeg = 4, look_around = 5):
         min1, min2 = self.find_V_min()
         eigenfreq, axialfreq, eigendir = self.get_wy_wz_wx_at_point_withR3_fit(
-            min1[0], min1[1], min1[2], look_around=5, polyfit=4
+            min1[0], min1[1], min1[2], look_around=look_around, polyfit=fitdeg
         )
 
         # Convert eigenvectors into a readable format
@@ -399,7 +400,7 @@ def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop = 1, step_size = 
         if x_push >= push_stop:
             print("Push too large, stopping.")
             break
-        test_sim.change_electrode_variables(consts.get_electrodvars_w_twist_and_push(
+        test_sim.change_electrode_variables(evars.get_electrodvars_w_twist_and_push(
             rfamp, rffreq, twist, endcaps, pushx=x_push
         ))
         
@@ -410,7 +411,7 @@ def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop = 1, step_size = 
         Radial2.append(freqs[2])
         Axial.append(freqs[0])
         
-        test_sim.change_electrode_variables(consts.get_electrodvars_w_twist_and_push(
+        test_sim.change_electrode_variables(evars.get_electrodvars_w_twist_and_push(
             rfamp, rffreq, twist, endcaps, pushx=-x_push
         ))
 
@@ -453,15 +454,15 @@ if __name__ == "__main__":
 
     tstart = time.time()
     
-    testsim1 = Simulation("Simp58_101", consts.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 0))
-    # for i in range(476):
-    #     if i%2 == 0:
-    #         testsim1.change_electrode_variables(consts.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 2.5))
-    #     else:
-    #         testsim1.change_electrode_variables(consts.get_electrodvars_w_twist(277, 28000000 * 2 * math.pi, -0.275, 2))
-    #     testsim1.get_principal_freq_at_min()
+    testsim1 = Simulation("Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 0))
+    for i in range(100):
+        if i%2 == 0:
+            testsim1.change_electrode_variables(evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 2.5))
+        else:
+            testsim1.change_electrode_variables(evars.get_electrodvars_w_twist(277, 28000000 * 2 * math.pi, -0.275, 2))
+        testsim1.get_principal_freq_at_min(look_around=10)
     
-    fig = recreate_old_data(377, 25500000 * 2 * math.pi, -0.275, 2, push_stop=1.5, step_size=0.1)
+    # fig = recreate_old_data(377, 25500000 * 2 * math.pi, -0.275, 2, push_stop=1.5, step_size=0.3)
         
     tstop = time.time()
 

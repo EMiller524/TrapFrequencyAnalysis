@@ -3,7 +3,7 @@ import time
 import pandas as pd
 import dataextractor
 import os
-import consts
+import constants
 import numexpr as ne
 
 
@@ -100,8 +100,8 @@ class Electrode:
         amp = self.Amplitude
         freq = self.Frequency
         offset = self.Offset
-        Q = consts.ion_charge
-        M = consts.ion_mass
+        Q = constants.ion_charge
+        M = constants.ion_mass
 
         if self.data is None:
             return

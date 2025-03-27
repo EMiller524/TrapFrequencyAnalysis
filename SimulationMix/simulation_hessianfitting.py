@@ -2,7 +2,7 @@ import math
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error
-import consts
+import constants
 
 import numpy as np
 
@@ -172,7 +172,7 @@ class sim_hessian:
         # LH mult the result with the row vector of direction
         seconderivative = np.dot(intermediary, direction)
         
-        freq = math.sqrt((consts.ion_charge / consts.ion_mass) * abs(seconderivative)) / (2 * math.pi)
+        freq = math.sqrt((constants.ion_charge / constants.ion_mass) * abs(seconderivative)) / (2 * math.pi)
         
         return freq
     
@@ -208,8 +208,8 @@ class sim_hessian:
         eigenvalues, eigenvectors = self.diagonalize_hessian(
             self.get_hessian_at_point(x, y, z)
         )
-        Q = consts.ion_charge
-        M = consts.ion_mass
+        Q = constants.ion_charge
+        M = constants.ion_mass
 
         frequencys_and_directions = []
         # Calculate frequencies

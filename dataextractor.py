@@ -7,7 +7,8 @@ import re
 import datetime
 import time
 import csv
-import consts
+import constants
+import electrode_vars as evars
 
 def extract_raw_trap_sim_data(file_path):
     """
@@ -148,7 +149,7 @@ def make_simulation_dataframe(folder_path):
 
     # Add custom attributes using the attrs property
     df.attrs['electrode_names'] = names_of_electodes
-    df.attrs['electrode_vars'] = consts.Electrode_vars()
+    df.attrs['electrode_vars'] = evars.Electrode_vars()
     df.attrs['name'] = os.path.basename(folder_path)
 
     # Save the combined dataframe as a pickle file

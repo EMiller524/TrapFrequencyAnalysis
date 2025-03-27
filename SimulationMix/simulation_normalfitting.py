@@ -7,7 +7,7 @@ from sklearn.linear_model import LinearRegression
 from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.metrics import r2_score, mean_squared_error
-import consts
+import constants
 
 class sim_normalfitting:
 
@@ -76,8 +76,8 @@ class sim_normalfitting:
 
             return second_derivative_at_target
 
-        Q = consts.ion_charge
-        M = consts.ion_mass
+        Q = constants.ion_charge
+        M = constants.ion_mass
         frequencies = []
 
         for axis in ["x", "y", "z"]:
@@ -224,8 +224,8 @@ class sim_normalfitting:
                 plt.show()
             return ydd, zdd
 
-        Q = consts.ion_charge
-        M = consts.ion_mass
+        Q = constants.ion_charge
+        M = constants.ion_mass
 
         filtered_df = self.total_voltage_df[(self.total_voltage_df["x"] == x)]
 
@@ -338,8 +338,8 @@ class sim_normalfitting:
 
             return eigenvalues, eigenvectors, axial_dds
 
-        Q = consts.ion_charge
-        M = consts.ion_mass
+        Q = constants.ion_charge
+        M = constants.ion_mass
         
         time2 = time.time()
 
