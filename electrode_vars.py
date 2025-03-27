@@ -1,6 +1,19 @@
+'''
+This file is to define the Electrode_vars class and functions to create instances of it.
+See Constants.py for the electrode naming convention
+'''
+
 import constants
 
 class Electrode_vars:
+    '''
+    This class holds the variables for each electrode in the simulation.
+    It is in the form: DCX = [amplitude, frequency, offset, phase], where:
+        - amplitude: the amplitude of the freq dependent voltage
+        - frequency: the frequency of the voltage
+        - offset: the offset of the voltage (DC offset)
+        - phase: the phase of the voltage
+    '''
     def __init__(
         self,
         DC1=[0, 0.01, 0, 0],
@@ -40,6 +53,15 @@ class Electrode_vars:
 
 
 def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
+    '''
+    Creates an instance of the Electrode_vars class with the given parameters.
+    The parameters are:
+    - rfamp: the amplitude of the RF voltage
+    - rffreq: the frequency of the RF voltage (On RF only)
+    - twist: the twist of the electrodes (+to RFs and -to DCs)
+    - endcaps: the offset of the endcaps (+to DCs)
+    The DC electrodes are twisted by the given amount, and the endcaps are offset by the given amount.
+    '''
     RF1 = [rfamp, rffreq, twist, 0]
     RF2 = [rfamp, rffreq, twist, 0]
 
@@ -73,6 +95,22 @@ def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
 def get_electrodvars_w_twist_and_push(
     rfamp, rffreq, twist=0, endcaps=0, pushx=0, pushy=0, pushz=0
 ):
+    '''
+    Creates an instance of the Electrode_vars class with the given parameters.
+    The parameters are:
+    - rfamp: the amplitude of the RF voltage
+    - rffreq: the frequency of the RF voltage (On RF only)
+    - twist: the twist of the electrodes (+to RFs and -to DCs)
+    - endcaps: the offset of the endcaps (+to DCs)
+    - pushx: the amount to push the x position of the DC electrodes
+    - pushy: the amount to push the y position of the DC electrodes
+    - pushz: the amount to push the z position of the DC electrodes
+    
+    Push is applied by adding/subtracting the given amount nessecary outer electrodes.
+        For x, this is just the DC endcaps, and for Y,Z this is 2 full blades
+    '''
+    
+    
     regular_twist = get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps)
 
     # pushx
@@ -99,6 +137,9 @@ def get_electrodvars_w_twist_and_push(
 
 
 def get_electrodvars_w_list(list_of_vars):
+    '''
+    Creates an instance of the Electrode_vars class with the given list of variables.
+    '''
     return Electrode_vars(DC1 = list_of_vars[0],
                           DC2 = list_of_vars[1],
                           DC3 = list_of_vars[2],

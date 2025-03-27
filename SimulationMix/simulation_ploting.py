@@ -1,3 +1,7 @@
+'''
+This file will contain the class sim_ploting
+'''
+
 import math
 from matplotlib import pyplot as plt
 import numpy as np
@@ -9,10 +13,22 @@ from scipy.interpolate import RBFInterpolator
 
 
 class sim_ploting:
+    '''
+    This class will be inherited by the simulation class and will contain all the plotting functions for the simulation data.
+    And also any funtion related to visualizing data
+    '''
 
     def plot_2d_color_contour_Vraw(self, point, axis):
-        # plots the raw total voltage in the plane defined by point, axis
-        # from self.total_voltage_df as a 2d contour plot
+        """
+        plots the raw total voltage in the plane defined by "point", "axis"
+        from self.total_voltage_df as a 2d contour plot
+        
+        args:
+            point: the value of the axis to plot (e.g. if axis = 'x', then point = x value to plot)
+            axis: the axis to plot (e.g. 'x', 'y', or 'z')
+        returns:    
+            None, but shows the plot
+        """
 
         # get the data in which axis = point (i.e. if axis = 'x', then we want all points where x = point)
         df = self.total_voltage_df.copy()
@@ -70,12 +86,8 @@ class sim_ploting:
 
         return
 
-    def plot_3d_surface_Vraw(self, point, axis):
-        # todo
-        return
-
-
     def plot_3d_contour_Vraw(self):
+        # TODO:
         return
         # Copy DataFrame
         df = self.total_voltage_df.copy()
@@ -109,7 +121,6 @@ class sim_ploting:
         # Compute a reasonable epsilon (based on mean spacing between points)
         avg_spacing = np.mean([np.ptp(xi) / grid_size, np.ptp(yi) / grid_size, np.ptp(zi) / grid_size])
         epsilon = avg_spacing * 2  # Scale factor to control smoothness
-
 
         # Use RBF Interpolation (much faster than griddata)
         interp_func = RBFInterpolator(
@@ -150,11 +161,18 @@ class sim_ploting:
         return fig
 
     def plot_3d_color_Vraw(self):
-        # todo
+        # TODO:
+        return
+
+    def plot_3d_surface_Vraw(self, point, axis):
+        # TODO:
         return
 
     def plot_1d_Vraw(self, axis, x=0, y=0, z=0):
-        return self.plot_value_in_blank_direction(self, x, y, z, axis, "CalcV", x_cutoff=1, y_cutoff=1, z_cutoff=1)
+        '''
+        plots the raw total voltage in the direction of axis (x,y,z) from self.total_voltage_df        
+        '''
+        return self.plot_value_in_blank_direction(self, x, y, z, axis, "TotalV", x_cutoff=1, y_cutoff=1, z_cutoff=1)
 
     def plot_potential_in_xyz_directions(
         self, x, y, z, x_cutoff=10, y_cutoff=10, z_cutoff=10
@@ -297,8 +315,20 @@ class sim_ploting:
     ):
         """
         Returns a fig that plots value vs direction starting at the point(x,y,z) and moving in the direction.
-        For example, if direction = "x" and value = "CalcV", then the graph will be of the potential vs x.
+        For example, if direction = "x" and value = "TotalV", then the graph will be of the potential vs x.
+        
+        args:
+            x, y, z: the point to start the plot from
+            direction: the direction to plot in (x, y, or z)
+            value: the value to plot (e.g. "TotalV", "CalcV", "Wx", "Wy", "Wz", "EMag")
+            x_cutoff, y_cutoff, z_cutoff: the cutoff values for each direction to limit the plot range (input in microns)
         """
+
+        # convert cutoffs to meters from microns
+        x_cutoff = x_cutoff * .000001
+        y_cutoff = y_cutoff * .000001
+        z_cutoff = z_cutoff * .000001
+
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
@@ -338,7 +368,7 @@ class sim_ploting:
         # Plot the value vs direction if value is a valid column
         if value in filtered_df.columns:
             valuess = filtered_df[value]
-            if value == "CalcV":
+            if value == "TotalV":
                 val_name = "PseudoPotential"
         elif value == "EMag":
             valuess = filtered_df.apply(
@@ -381,18 +411,8 @@ class sim_ploting:
                     filtered_df.iloc[i]["z"],
                 )[["x", "y", "z"].index("z")]
 
-                # Wy = self.get_freqs_in_given_dir_at_point(
-                #     filtered_df.iloc[i]["x"],
-                #     filtered_df.iloc[i]["y"],
-                #     filtered_df.iloc[i]["z"],
-                # )[["x", "y", "z"].index("y")]
-                # Wz = self.get_freqs_in_given_dir_at_point(
-                #     filtered_df.iloc[i]["x"],
-                #     filtered_df.iloc[i]["y"],
-                #     filtered_df.iloc[i]["z"],
-                # )[["x", "y", "z"].index("z")]
-
                 Wr = math.sqrt((Wy**2) / 2 + (Wz**2) / 2)
+
                 valuess.append(Wr)
         else:
             return None
@@ -442,12 +462,16 @@ class sim_ploting:
         return fig
 
     def get_main_report(self, name):
-        # plots may things
-        # Plot 1-3 PseudoPot in x,y,z directions (3 graphs)
-        # Plot 4-6 Wx vs x Wy vs y Wz Vs z (3 graphs)
-        # Plot 7 Wy vs x Wz vs x and We vs x (1 graph)
-        print("Hi1")
-
+        """
+        This fucntion is old, and not exactly physicaly relavant (not always looking at the min)
+        
+        Many things are ploted and saved in a pdf in repts/ with the name given:
+            # Plot 1-3 PseudoPot in x,y,z directions (3 graphs)
+            # Plot 4-6 Wx vs x Wy vs y Wz Vs z (3 graphs)
+            # Plot 7 Wy vs x Wz vs x and We vs x (1 graph)
+        
+        The above may not be in the right order, or even correct
+        """
         plot1 = self.plot_value_in_blank_direction(0, 0, 0, "x", "CalcV")
 
         plot21 = self.plot_value_in_blank_direction(
@@ -460,7 +484,7 @@ class sim_ploting:
         plot3 = self.plot_value_in_blank_direction(0, 0, 0, "x", "Wx")
 
         fig41 = self.plot_value_in_blank_direction(0, 0, 0, "y", "Wy")
-        print("HIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII")
+
         fig42 = self.plot_value_in_blank_direction(0, 0, 0, "z", "Wz")
 
         # plot fig41 and fig42 on the same plot
@@ -503,15 +527,6 @@ class sim_ploting:
             for _, row in filtered_df.iterrows()
         ]
 
-        # Wy_values = [
-        #     self.get_freqs_in_given_dir_at_point(row["x"], row["y"], row["z"])[1]
-        #     for _, row in filtered_df.iterrows()
-        # ]
-        # Wz_values = [
-        #     self.get_freqs_in_given_dir_at_point(row["x"], row["y"], row["z"])[2]
-        #     for _, row in filtered_df.iterrows()
-        # ]
-
         Wr_values = [
             math.sqrt((Wy**2) / 2 + (Wz**2) / 2) for Wy, Wz in zip(Wy_values, Wz_values)
         ]
@@ -540,8 +555,6 @@ class sim_ploting:
             pdf.savefig(plot3)
             pdf.savefig(plot4)
             pdf.savefig(plot5)
-            # pdf.savefig(plot6)
-            # pdf.savefig(plot7)
 
             pdf.savefig(plot101)
             pdf.savefig(plot102)

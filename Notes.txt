@@ -1,3 +1,9 @@
+'''
+
+Random notes pls ignore
+
+'''
+
 Equations/constants to confirm:
 
 trap_freq_k = sqrt(

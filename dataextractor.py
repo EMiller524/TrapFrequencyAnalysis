@@ -1,4 +1,11 @@
-# This file will contain all nessecary fucntions to take in a raw data file and extract the data from it
+'''
+This file will contain all nessecary function to turn raw COMSOL data into usable dataframes
+
+For now the plan is as follows:
+Comsol --> Raw TXT file per electrode
+Raw TXT file per electrode --> Extracted CSV file (with x,y,z,V,Ex,Ey,Ez columns)
+12 CSV files per simulation (one for each electrode) --> Combined CSV file (with x,y,z,V,Ex,Ey,Ez columns for all electrodes)
+'''
 
 import pandas as pd
 import numpy as np
@@ -13,12 +20,14 @@ import electrode_vars as evars
 def extract_raw_trap_sim_data(file_path):
     """
     Extract raw data from a text file with the following columns: x, y, z, V, Ex, Ey, Ez.
+    Note this fucntion is only guarented to be correct for data extracted as detailed in the readme
 
     Parameters:
     file_path (str): The path to the text file.
 
     Returns:
     pd.DataFrame: DataFrame containing the extracted data.
+    also saves this df as a pickle to the same folder as the file_path
     """
     # extract the last bit of the file path to use as the name of the dataframe
     blade_name = os.path.basename(file_path).split(".")[0].split("_")[0]
@@ -86,13 +95,14 @@ def make_simulation_dataframe(folder_path):
     # TODO
     """
     Create a dataframe from all the extracted data files in a given sim.
+    (with x,y,z,V,Ex,Ey,Ez columns for all electrodes)
 
     Parameters:
     folder_path (str): The path to the folder containing the extracted data files.
 
     Returns:
     pd.DataFrame: DataFrame containing the combined data from all files.
-    also saves the df as a pickle thing
+    also saves the df as a pickle to folder_path
     """
 
     # for each txt file in folder_path check if the corresponding csv file exists, if it does skip this txt file
@@ -154,7 +164,7 @@ def make_simulation_dataframe(folder_path):
 
     # Save the combined dataframe as a pickle file
     df.to_pickle(os.path.join(folder_path, "combined_dataframe.csv"))
-    
+
     # print the number of points in the dataframe
     print(f"Number of points in the dataframe: {len(df)}")
     print(f"Dataframe shape: {df.shape}")
@@ -225,6 +235,3 @@ def get_all_from_point(dataframe, x, y, z):
 
 def get_set_of_points(dataframe):
     return set(zip(dataframe["x"], dataframe["y"], dataframe["z"]))
-
-# print("HI")
-# make_simulation_dataframe("C:\GitHub\TrapFrequencyAnalysis\Data\Simp58_101_copy")
