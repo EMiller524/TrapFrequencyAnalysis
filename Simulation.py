@@ -1,4 +1,7 @@
-from functools import reduce
+'''
+This file will contain the main base of the class simulation
+'''
+
 import math
 import os
 from matplotlib import pyplot as plt
@@ -8,36 +11,21 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 import dataextractor
 import constants
-import Electrode
 import time
 import matplotlib.cm as cm
-import concurrent.futures
 from SimulationMix.simulation_ploting import sim_ploting
-from SimulationMix.simulation_hessianfitting import sim_hessian
-from SimulationMix.simulation_normalfitting import sim_normalfitting
-from numba import njit, prange
-import multiprocessing
+from SimulationMix.simulation_fitting import sim_normalfitting
 from multiprocessing import Pool, cpu_count
 from joblib import Parallel, delayed
 from scipy.interpolate import griddata
-from scipy.interpolate import RBFInterpolator
 import numexpr as ne
 import electrode_vars as evars
 
 
-multiprocessing.set_start_method("spawn", force=True)
-
-
-# def init_electrode(electrode_name, dataset, electrode_vars):
-#     return electrode_name, Electrode.Electrode(
-#         electrode_name, dataset, electrode_vars.get_vars(electrode_name)
-#     )
-
-
-class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
+class Simulation(sim_ploting, sim_normalfitting):
     def __init__(self, dataset, variables=evars.Electrode_vars()):
         """
-        Initialize the Electrode object.
+        Initialize the simulation object by making sure the data is all extracted and finding total voltages if given electodes
         """
         timesimstart = time.time()
         print("initializing simulation")
@@ -66,7 +54,7 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
             "simulation initialized in " + str(timesimstop - timesimstart) + " seconds"
         )
 
-    def get_variables(self, electrode):
+    def get_elec_variables(self, electrode):
         return self.electrode_vars.get_vars(electrode)
 
     def update_total_voltage(self):
@@ -74,18 +62,6 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         an equation based on the electorde_varaibles and
         applying to the column "TotalV" in the dataframe."""
 
-        # self.data["CalcV"] = ne.evaluate(
-        #     "(amp**2 * Q * (Ex**2 + Ey**2 + Ez**2)) / (4 * M * freq**2)",
-        #     local_dict={
-        #     "amp": amp,
-        #     "Q": Q,
-        #     "Ex": self.data["Ex"],
-        #     "Ey": self.data["Ey"],
-        #     "Ez": self.data["Ez"],
-        #     "M": M,
-        #     "freq": freq,
-        #     },
-        #     )
         evaluation_final = ""
         eval_ex_str = ""
         eval_ey_str = ""
@@ -206,31 +182,28 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         return
 
     def change_electrode_variables(self, new_vars: evars.Electrode_vars):
+        '''
+        Change the electrode variables of the simulation to new_vars and update the total voltage DataFrame.
+        '''
         self.electrode_vars = new_vars
         self.update_total_voltage()
 
-    def get_valid_points(self):
-        non_empty_dfs = []
-        for electrode in self.electrodes:
-            if self.electrodes[electrode].get_dataframe() is not None:
-                non_empty_dfs.append(self.electrodes[electrode].get_dataframe())
-
-        point_sets = [set(zip(df["x"], df["y"], df["z"])) for df in non_empty_dfs]
-
-        common_points = set.intersection(*point_sets)
-
-        return np.array(sorted(common_points))
-
-    def find_V_min(self, step_size=0.000003):
+    def find_V_min(self, step_size=5):
         """
-
         Finds and returns the point with the minimum total voltage.
         To catch errors, the minimum 100 points are found. If they are all close to each other, then the minimum is found.
         If there are outliers, they are thrown out, then the minimum is found.
-
-        MAKE FASTER!!
-
+        step_size is used to determine the cutout size for the R3 fit around the minimum point.
+        
+        args:
+            step_size (float): The step size(in microns) to use for the cutout around the minimum point. Default is 5 microns.
+            Note if step size is too small an error will be thrown (must be over 5)
         """
+
+        if step_size <= 4.9:
+            raise ValueError("Step size must be greater than 0.")
+        
+        step_size = step_size * 1e-6  # Convert microns to meters for calculations
 
         if self.total_voltage_df is None:
             print("Total voltage data not available.")
@@ -281,15 +254,12 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         min_index = np.argmin(filtered_calcV)
         min_point = filtered_points[min_index]
 
-        # Now i want to get a R3 fit around "min_point" and find the minimum of that fit
-
         ## Get the surrounding points for R3 fit using stepsize as the cutoff
         cutout_of_df = self.total_voltage_df[
             (self.total_voltage_df["x"].between(min_point[0] - (5 * step_size), min_point[0] + (5 * step_size)))
             & (self.total_voltage_df["y"].between(min_point[1] - step_size, min_point[1] + step_size))
             & (self.total_voltage_df["z"].between(min_point[2] - step_size, min_point[2] + step_size))
         ]
-
 
         voltage_vals = cutout_of_df["TotalV"].values
         xyz_vals_uncentered = cutout_of_df[["x", "y", "z"]].values
@@ -323,18 +293,41 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
         best_fit_minimum = min_point + delta_xyz_centered
 
         time5 = time.time()
-        # print("Total time taken: ", time5 - time1)
+
+        # print("Total time taken to find min: ", time5 - time1)
 
         # print("best_fit_minimum: ", best_fit_minimum)
         # print("min_point: ", min_point)
-
         return best_fit_minimum, min_point
 
     def get_principal_freq_at_min(self, getmintoo = False, fitdeg = 4, look_around = 5):
+        '''
+        This fuction finds the principal frequency at the minimum point of the total voltage.
+        To do so the minimum in the potential well is found and then at this point a R3 fit is performed to find the eigenfrequencies and eigenvectors.
+        
+        args:
+            getmintoo (bool): If True, return the minimum points as well. Default is False.
+            fitdeg (int): The degree of the polynomial to fit to the data. Default is 4.
+            look_around (float): The size of the cutout around the minimum point to use for the R3 fit. Default is 5 microns.
+        
+        returns:
+            eigenfreq (list): A list of the eigenfrequencies in increasing order.
+            eigendir (dict): A dictionary of the eigenvectors in a readable format.
+            min1 (array): The best fit minimum point (x,y,z) in meters.
+            min2 (array): The original minimum point (x,y,z) in meters.
+        '''
         min1, min2 = self.find_V_min()
-        eigenfreq, axialfreq, eigendir = self.get_wy_wz_wx_at_point_withR3_fit(
+        eigenfreq, axialfreq, eigendir = self.get_freqs_at_point_withR3_fit(
             min1[0], min1[1], min1[2], look_around=look_around, polyfit=fitdeg
         )
+
+        # Convert eigenfreq to a numpy array for sorting
+        eigenfreq = np.array(eigenfreq)
+
+        # Sort eigenfreq in increasing order and eigendir accordingly
+        sorted_indices = np.argsort(eigenfreq)
+        eigenfreq = eigenfreq[sorted_indices].tolist()  # Convert back to list if needed
+        eigendir = eigendir[:, sorted_indices]  # Sort eigendir columns based on sorted indices
 
         # Convert eigenvectors into a readable format
         eigendir_readable = {
@@ -347,172 +340,3 @@ class Simulation(sim_ploting, sim_hessian, sim_normalfitting):
             return eigenfreq, eigendir_readable, min1, min2
 
         return eigenfreq, eigendir_readable
-
-
-# --- Helper Functions (Must Be Top-Level for Multiprocessing) ---
-
-
-def to_structured_array(df):
-    """Converts a NumPy array to a structured array for fast intersections."""
-    return np.core.records.fromarrays(df[:, :3].T, names="x,y,z")
-
-def fast_intersection(arrays):
-    """Performs fast intersection of multiple structured arrays."""
-    result = arrays[0]
-    for arr in arrays[1:]:
-        result = np.intersect1d(result, arr, assume_unique=True)
-    return result
-
-def filter_common(df, common_points):
-    """Filters a DataFrame to keep only common (x, y, z) points."""
-    struct_df = to_structured_array(df)
-    mask = np.isin(struct_df, common_points)
-    return df[mask]
-
-def fast_filter_common(df, sorted_common_points):
-    """Filters a DataFrame using binary search instead of isin()."""
-    struct_df = to_structured_array(df)
-    indices = np.searchsorted(sorted_common_points, struct_df)
-    mask = (indices < len(sorted_common_points)) & (
-        sorted_common_points[indices] == struct_df
-    )
-    return df[mask]
-
-def parallel_sort(arr, num_chunks=cpu_count()):
-    """Sort large NumPy arrays in parallel using chunks."""
-    chunks = np.array_split(arr, num_chunks)
-    sorted_chunks = Parallel(n_jobs=num_chunks)(
-        delayed(np.sort)(chunk) for chunk in chunks
-    )
-    return np.concatenate(sorted_chunks)
-
-
-
-def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop = 1, step_size = 0.1):
-
-    x_pos = []
-    Radial1 = []
-    Radial2 = []
-    Axial = []
-    x_push = 0
-    test_sim = Simulation("Simp58_101")
-    while True:
-        if x_push >= push_stop:
-            print("Push too large, stopping.")
-            break
-        test_sim.change_electrode_variables(evars.get_electrodvars_w_twist_and_push(
-            rfamp, rffreq, twist, endcaps, pushx=x_push
-        ))
-        
-        freqs, eigendir, minreal, min_snap = test_sim.get_principal_freq_at_min(getmintoo=True)
-
-        x_pos.append(minreal[0])
-        Radial1.append(freqs[1])
-        Radial2.append(freqs[2])
-        Axial.append(freqs[0])
-        
-        test_sim.change_electrode_variables(evars.get_electrodvars_w_twist_and_push(
-            rfamp, rffreq, twist, endcaps, pushx=-x_push
-        ))
-
-        freqs, eigendir, minreal, min_snap = test_sim.get_principal_freq_at_min(getmintoo=True)
-
-        x_pos.append(minreal[0])
-        Radial1.append(freqs[1])
-        Radial2.append(freqs[2])
-        Axial.append(freqs[0])
-
-        x_push += step_size
-        print(x_push)
-
-    # Plot x_pos vs Radial1 and Radial2 and Axial but have Radial 1 and 2 share an axis and Axial on the other
-    fig, ax1 = plt.subplots()
-    ax2 = ax1.twinx()
-    ax1.scatter(x_pos, Radial1, label="Radial", color="red")
-    ax1.scatter(x_pos, Radial2, label="Radial", color="red")
-    ax2.scatter(x_pos, Axial, label="Axial", color="green")
-    ax1.set_xlabel("x_pos")
-    ax1.set_ylabel("Radial Frequency (Hz)")
-    ax2.set_ylabel("Axial Frequency (Hz)")
-    ax1.legend(loc="upper left")
-    ax2.legend(loc="upper right")
-    ax1.set_ylim(ax1.get_ylim()[0] * .995, ax1.get_ylim()[1] * 1.005)
-    ax2.set_ylim(ax2.get_ylim()[0] * .98, ax2.get_ylim()[1] * 1.02)
-    return fig
-
-# ✅ Make sure all simulation execution happens **inside** `if __name__ == "__main__"`
-if __name__ == "__main__":
-    multiprocessing.set_start_method("spawn", force=True)  # ✅ Prevent reinitialization
-
-    # elec_var0 = consts.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 0)
-    # elec_var1 = consts.get_electrodvars_w_twist(
-    #     377, 25500000 * 2 * math.pi, -0.275, 2.5
-    # )
-    # elec_var2 = consts.get_electrodvars_w_twist_and_push(
-    #     377, 28000000 * 2 * math.pi, -0.275, 2, pushx = 1
-    # )
-
-    tstart = time.time()
-    
-    testsim1 = Simulation("Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 0))
-    for i in range(100):
-        if i%2 == 0:
-            testsim1.change_electrode_variables(evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 2.5))
-        else:
-            testsim1.change_electrode_variables(evars.get_electrodvars_w_twist(277, 28000000 * 2 * math.pi, -0.275, 2))
-        testsim1.get_principal_freq_at_min(look_around=10)
-    
-    # fig = recreate_old_data(377, 25500000 * 2 * math.pi, -0.275, 2, push_stop=1.5, step_size=0.3)
-        
-    tstop = time.time()
-
-    plt.show()
-    # test_sim1.change_electrode_variables(elec_var_new)
-    # test_sim1.recreate_old_data(377, 28000000 * 2 * math.pi, -0.275, 2)
-    
-    # for push in [.1,.2,.3,.4,.5,.6,.7,.8,.9, 1, 2, 3]:
-    #     print("Push: " + str(push))
-        
-    #     test_sim1.change_electrode_variables(
-    #         consts.get_electrodvars_w_twist_and_push(
-    #             377, 28000000 * 2 * math.pi, -0.275, 2, pushx=push))
-        
-    #     mins = test_sim1.find_V_min()
-    #     print(mins[0][0], mins[1][0])
-
-
-
-    # for fit in [2,4]:
-    #     for lookaround in [3, 5, 10, 15, 20, 30, 40, 50, 60]:
-    #         freqs = test_sim1.get_wy_wz_wx_at_point_withR3_fit(0,0,0, look_around=lookaround, polyfit=fit)[0]
-    #         print("Fit, lookaround: " + str(fit) + ", " + str(lookaround) + "--> Val: " + str((abs(freqs[2] - freqs[1]))))
-
-
-    # [5,10,15,20,30,40,50,60,90]
-
-    # min_normal = test_sim_normal.find_V_min()[0]
-    # miny1 = test_sim_y_push_1.find_V_min()[0]
-    # miny2 = test_sim_y_push_2.find_V_min()[0]
-    # miny3 = test_sim_y_push_3.find_V_min()[0]
-    # minz1 = test_sim_z_push_1.find_V_min()[0]
-    # minz2 = test_sim_z_push_2.find_V_min()[0]
-    # minz3 = test_sim_z_push_3.find_V_min()[0]
-
-    # freqs_normal = test_sim_normal.get_principal_freq_at_min()[0]
-    # freqs_y1 = test_sim_y_push_1.get_principal_freq_at_min()[0]
-    # freqs_y2 = test_sim_y_push_2.get_principal_freq_at_min()[0]
-    # freqs_y3 = test_sim_y_push_3.get_principal_freq_at_min()[0]
-    # freqs_z1 = test_sim_z_push_1.get_principal_freq_at_min()[0]
-    # freqs_z2 = test_sim_z_push_2.get_principal_freq_at_min()[0]
-    # freqs_z3 = test_sim_z_push_3.get_principal_freq_at_min()[0]
-
-    # # Print results
-    # print("normal min: " + str(min_normal) + "freqs: " + str(freqs_normal))
-    # print("y push 1 min: " + str(miny1) + "freqs: " + str(freqs_y1))
-    # print("y push 2 min: " + str(miny2) + "freqs: " + str(freqs_y2))
-    # print("y push 3 min: " + str(miny3) + "freqs: " + str(freqs_y3))
-    # print("z push 1 min: " + str(minz1) + "freqs: " + str(freqs_z1))
-    # print("z push 2 min: " + str(minz2) + "freqs: " + str(freqs_z2))
-    # print("z push 3 min: " + str(minz3) + "freqs: " + str(freqs_z3))
-
-    print("Time taken: " + str(tstop - tstart))

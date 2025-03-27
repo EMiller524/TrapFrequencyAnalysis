@@ -1,3 +1,7 @@
+'''
+This file contians the sim_normalfitting class
+'''
+
 from itertools import combinations_with_replacement
 import math
 import random
@@ -10,11 +14,17 @@ from sklearn.metrics import r2_score, mean_squared_error
 import constants
 
 class sim_normalfitting:
+    '''
+    This class will be inherited by "simulation"
+    This calss will hold most all fucntions that deal with fitting the data except for a few frontend funcs
+    '''
 
     def get_frequencys_at_point_xyz(self, x, y, z, look_around=1000, polyfit = 4):
         """
-        Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
+        Compute the frequencies in the x, y, and z directions by fitting a 1D polynomial
         to voltage values along each axis separately and extracting the second derivative.
+        
+        * * Note * * Lookaround here is still in number of points
 
         Args:
             x, y, z (float): The point of interest.
@@ -23,6 +33,9 @@ class sim_normalfitting:
         Returns:
             list: [freq_x, freq_y, freq_z]
         """
+        
+        look_around = look_around * 0.000001  # Convert microns to meters
+        
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
@@ -105,11 +118,11 @@ class sim_normalfitting:
             voltage_vals = sorted_df["TotalV"].values
 
             # Get the points of interest
-            closest_idx = np.searchsorted(axis_vals, eval(axis))
-            start_idx = max(0, closest_idx - look_around)
-            end_idx = min(len(axis_vals), closest_idx + look_around + 1)
-            selected_axis_vals = axis_vals[start_idx:end_idx]
-            selected_voltage_vals = voltage_vals[start_idx:end_idx]
+            target_value = eval(axis)
+            start_value = target_value - look_around
+            end_value = target_value + look_around
+            selected_axis_vals = axis_vals[(axis_vals >= start_value) & (axis_vals <= end_value)]
+            selected_voltage_vals = voltage_vals[(axis_vals >= start_value) & (axis_vals <= end_value)]
 
             # Get the second derivative
             second_derivative = fit_and_get_second_derivative(
@@ -129,18 +142,21 @@ class sim_normalfitting:
 
         return frequencies
 
-    def get_wy_wz_at_point_withR2_fit (self, x, y, z, look_around=100, polyfit = 4):
+    def get_wy_wz_at_point_withR2_fit (self, x, y, z, look_around=5, polyfit = 4):
         """
-        Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
-        to voltage values along each axis separately and extracting the second derivative.
+        Compute the frequencies in the y, and z directions by fitting a 2 dim polynomial to yz plane of
+        voltage values and extract the second derivative.
 
         Args:
             x, y, z (float): The point of interest.
-            look_around (int): Number of points to consider in each direction (default 5).
+            look_around (int): Number of microns to look around in each direction (default 5).
 
         Returns:
-            list: [freq_x, freq_y, freq_z]
+            list: [freq_y, freq_z]
         """
+        
+        look_around = look_around * 0.000001  # Convert microns to meters
+
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
@@ -229,11 +245,9 @@ class sim_normalfitting:
 
         filtered_df = self.total_voltage_df[(self.total_voltage_df["x"] == x)]
 
-        look_around_val = look_around * 0.000001
-
         cutout_of_df = filtered_df[
-            (filtered_df["y"].between(y - look_around_val, y + look_around_val))
-            & (filtered_df["z"].between(z - look_around_val, z + look_around_val))
+            (filtered_df["y"].between(y - look_around, y + look_around))
+            & (filtered_df["z"].between(z - look_around, z + look_around))
         ]
 
         voltage_vals = cutout_of_df["TotalV"].values
@@ -251,50 +265,53 @@ class sim_normalfitting:
             print(f"Could not calculate frequency :(")
             return None
         else:
-            wy = (
-                math.copysign(1, ydd)
-                * math.sqrt((Q / M) * abs(ydd))
-                / (2 * math.pi)
-            )
+            wy = constants.freq_calcualtion(ydd)
 
-            wz = (
-                math.copysign(1, zdd)
-                * math.sqrt((Q / M) * abs(zdd))
-                / (2 * math.pi)
-            )
+            wz = constants.freq_calcualtion(zdd)
 
         return [wy, wz]
 
-    def get_wy_wz_wx_at_point_withR3_fit (self, x, y, z, look_around=80, polyfit = 4):
-
+    def get_freqs_at_point_withR3_fit (self, x, y, z, look_around=5, polyfit = 4, return_coefs = False):
         """
-        Compute the frequencies in the x, y, and z directions by fitting a cubic polynomial
-        to voltage values along each axis separately and extracting the second derivative.
+        Compute the princapl and x, y, and z dir freqs by fitting a 3dim polynomial
+        to the total voltage values in a given neighborhood around the point
 
         Args:
             x, y, z (float): The point of interest.
-            look_around (int): Number of points to consider in each direction (default 5).
+            look_around (int): Number of microns to look in each direction (default 5).
 
         Returns:
-            list: [freq_x, freq_y, freq_z]
+            list: [freq_x, freq_y, freq_z], 
+            list: [principal_freq_x, principal_freq_y, principal_freq_z], 
+            list[list]: eigenvecs = [eigenvec1 = [xcomp, ycomp, zcomp], 2, 3]
         """
         time1 = time.time()
+
+        # Convert look_around from microns to meters
         look_around = look_around * 0.000001
+
+        # Check if the total_voltage_df is available
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
 
         def fit_and_get_second_derivative_withR3(
-            axis_values, voltage_values, plot=False
+            axis_values, voltage_values
         ):
-            """Fit a quadratic polynomial and return the second derivative at the target value."""
+            """
+            Fit a 3dim polynomial determened by the degree (polyfit) and return:
+            1. The eigenvalues of the Hessian matrix (3 values)
+            2. The eigenvectors of the Hessian matrix (3x3 matrix)
+            3. The second derivatives along the x, y, and z axes (3 values)
+            """
+
             if len(axis_values) < 4:
                 print("Not enough points for a quadratic fit along one axis.")
                 return None
 
-            # print how many data points are being considered
             # print(f"Number of data points considered: {len(axis_values)}")
 
+            # TODO: Check bound fitting params to be physical
             # Create cubic polynomial features
             poly = PolynomialFeatures(degree=polyfit, include_bias=True)
             X_poly = poly.fit_transform(axis_values)
@@ -320,13 +337,12 @@ class sim_normalfitting:
                                 [dd_xy, dd_yy, dd_yz],
                                 [dd_xz, dd_yz, dd_zz]])
 
-            diagonal_hessian = np.diagonal(hessian)
-            # print(diagonal_hessian)
             # get the principal directions and eigenvalues of the hessian
             eigenvalues, eigenvectors = np.linalg.eig(hessian)
             # print(eigenvalues)
             # print(eigenvectors)
 
+            # Run error checking on the polynomial fit
             y_pred = model.predict(X_poly)
             r2 = r2_score(voltage_vals, y_pred)
             mse = mean_squared_error(voltage_vals, y_pred)
@@ -336,22 +352,18 @@ class sim_normalfitting:
                 print(f"Warning: Low R² value ({r2:.4f}) for the polynomial fit.")
                 print(f"R²: {r2:.4f}, MSE: {mse:.4f}")
 
-            return eigenvalues, eigenvectors, axial_dds
+            # TODO: Check if the 2nd deg terms fit well, IE: r2>.99
+
+            if return_coefs:
+                return eigenvalues, eigenvectors, axial_dds, coeff
+            else:
+                return eigenvalues, eigenvectors, axial_dds
 
         Q = constants.ion_charge
         M = constants.ion_mass
-        
+
         time2 = time.time()
 
-        # cutout_of_df = self.total_voltage_df[
-        #     (
-        #         self.total_voltage_df["x"].between(
-        #             x - (5 * look_around), x + (5 * look_around)
-        #         )
-        #     )
-        #     & (self.total_voltage_df["y"].between(y - look_around, y + look_around))
-        #     & (self.total_voltage_df["z"].between(z - look_around, z + look_around))
-        # ]
         df = self.total_voltage_df
 
         x_arr = df["x"].to_numpy()
@@ -370,7 +382,6 @@ class sim_normalfitting:
 
         cutout_of_df = df.iloc[mask]
 
-        
         time3 = time.time()
 
         voltage_vals = cutout_of_df["TotalV"].values
@@ -379,179 +390,33 @@ class sim_normalfitting:
         # Make the Point of interest the origin (0,0,0) and move the other points accordingly
         xyz_vals_centered = xyz_vals_uncentered - [x, y, z]
         # Get the second derivative
-        eigenval, eigenvec, axialdds = fit_and_get_second_derivative_withR3(xyz_vals_centered, voltage_vals)
+        if return_coefs:
+            eigenval, eigenvec, axialdds, coeff = fit_and_get_second_derivative_withR3(xyz_vals_centered, voltage_vals)
+        else:
+            eigenval, eigenvec, axialdds = fit_and_get_second_derivative_withR3(xyz_vals_centered, voltage_vals)
         xx, yy, zz = axialdds
 
         if xx is None or yy is None or zz is None:
             print(f"Could not calculate frequency :(")
             return None
+
         else:
-            w1 = (
-                math.copysign(1, eigenval[0])
-                * math.sqrt((Q / M) * abs(eigenval[0]))
-                / (2 * math.pi)
-            )
+            w1 = constants.freq_calcualtion(eigenval[0])
+            w2 = constants.freq_calcualtion(eigenval[1])
+            w3 = constants.freq_calcualtion(eigenval[2])
 
-            w2 = (
-                math.copysign(1, eigenval[1])
-                * math.sqrt((Q / M) * abs(eigenval[1]))
-                / (2 * math.pi)
-            )
-
-            w3 = (
-                math.copysign(1, eigenval[2])
-                * math.sqrt((Q / M) * abs(eigenval[2]))
-                / (2 * math.pi)
-            )
-
-            wx = (
-                math.copysign(1, xx)
-                * math.sqrt((Q / M) * abs(xx))
-                / (2 * math.pi)
-            )
-
-            wy = math.copysign(1, yy) * math.sqrt((Q / M) * abs(yy)) / (2 * math.pi)
-
-            wz = math.copysign(1, zz) * math.sqrt((Q / M) * abs(zz)) / (2 * math.pi)
+            wx = constants.freq_calcualtion(xx)
+            wy = constants.freq_calcualtion(yy)
+            wz = constants.freq_calcualtion(zz)
 
         time4 = time.time()
-        
-        print(f"Time taken for data extraction: {time2 - time1:.4f} seconds")
-        print(f"Time taken for filtering: {time3 - time2:.4f} seconds")
-        print(f"Time taken for fitting: {time4 - time3:.4f} seconds")
-        print(f"Time taken for total: {time4 - time1:.4f} seconds")
-        
-        return [w1, w2, w3], [wx, wy, wz], eigenvec
 
-    # def get_frequencies_at_point
-
-
-#############################################
-# import numpy as np
-# import pandas as pd
-# from joblib import Parallel, delayed
-# from numba import njit
-# import consts
-
-
-# class sim_normalfitting:
-#     def compute_all_frequencies(self, look_around=20, n_jobs=-1):
-#         """
-#         🚀 Compute Wx, Wy, Wz at ALL points in the dataset efficiently.
-#         Uses parallel execution & pre-sorting to handle 100-200M points efficiently.
-
-#         Args:
-#             look_around (int): Number of neighboring points to consider for fitting.
-#             n_jobs (int): Number of CPU cores to use (-1 = all).
-
-#         Returns:
-#             DataFrame with ['x', 'y', 'z', 'Wx', 'Wy', 'Wz']
-#         """
-#         if self.total_voltage_df is None:
-#             print("Total voltage data is not available.")
-#             return None
-
-#         df = self.total_voltage_df
-#         Q = consts.ion_charge
-#         M = consts.ion_mass
-
-#         # ✅ Pre-sort the entire DataFrame ONCE
-#         df_sorted = df.sort_values(by=["x", "y", "z"]).reset_index(drop=True)
-
-#         # ✅ Convert to NumPy arrays (removes slow DataFrame slicing)
-#         x_vals = df_sorted["x"].values
-#         y_vals = df_sorted["y"].values
-#         z_vals = df_sorted["z"].values
-#         voltage_vals = df_sorted["CalcV"].values
-
-#         # ✅ Extract unique points (removes duplicates)
-#         points = df_sorted[["x", "y", "z"]].drop_duplicates().values
-
-#         # ✅ Run frequency calculations in parallel for all points (fixed batching)
-#         results = Parallel(n_jobs=n_jobs, batch_size=1)(
-#             delayed(compute_frequencies_batch)(
-#                 point, x_vals, y_vals, z_vals, voltage_vals, Q, M, look_around
-#             )
-#             for point in points
-#         )
-
-#         # ✅ Create final DataFrame
-#         results_df = pd.DataFrame(points, columns=["x", "y", "z"])
-#         results_df[["Wx", "Wy", "Wz"]] = results
-
-#         return results_df
-
-
-# def compute_frequencies_batch(
-#     point, x_vals, y_vals, z_vals, voltage_vals, Q, M, look_around
-# ):
-#     """
-#     🚀 Computes Wx, Wy, Wz for a single (x, y, z) point efficiently using NumPy arrays.
-#     """
-#     x, y, z = point
-#     second_derivatives = []
-#     print("Computing frequencies for point:", point)
-
-#     for axis, axis_vals in zip(["x", "y", "z"], [x_vals, y_vals, z_vals]):
-#         # ✅ Filter only relevant slice of data (NumPy indexing)
-#         if axis == "x":
-#             mask = (y_vals == y) & (z_vals == z)
-#             target_value = x
-#         elif axis == "y":
-#             mask = (x_vals == x) & (z_vals == z)
-#             target_value = y
-#         else:  # axis == "z"
-#             mask = (x_vals == x) & (y_vals == y)
-#             target_value = z
-
-#         axis_filtered = axis_vals[mask]
-#         voltage_filtered = voltage_vals[mask]
-
-#         if len(axis_filtered) < 3:  # Ensure enough points for polyfit
-#             second_derivatives.append(0.0)
-#             continue
-
-#         # ✅ Find closest index
-#         closest_idx = np.searchsorted(axis_filtered, target_value)
-
-#         # ✅ Select `look_around` points
-#         start_idx = max(0, closest_idx - look_around)
-#         end_idx = min(len(axis_filtered), closest_idx + look_around + 1)
-
-#         selected_axis_vals = axis_filtered[start_idx:end_idx]
-#         selected_voltage_vals = voltage_filtered[start_idx:end_idx]
-
-#         # ✅ Compute second derivative using polyfit
-#         second_derivative = polyfit_wrapper(
-#             selected_axis_vals, selected_voltage_vals, target_value
-#         )
-
-#         second_derivatives.append(second_derivative)
-
-#     # ✅ Compute frequencies using fast Numba function
-#     return fast_compute_frequencies(*second_derivatives, Q, M)
-
-
-# def polyfit_wrapper(x_vals, y_vals, target_x):
-#     """🚀 Compute the second derivative at a target point using stable np.polyfit()."""
-#     if len(np.unique(x_vals)) < 3:  # Ensure at least 3 unique x values
-#         return 0.0  # Return 0 if not enough points for a fit
-
-#     # ✅ Fit quadratic polynomial
-#     coeffs = np.polyfit(x_vals, y_vals, 2)
-
-#     # ✅ Compute second derivative at the target value
-#     second_derivative_coeffs = np.polyder(coeffs, 2)
-#     second_derivative_at_target = np.polyval(second_derivative_coeffs, target_x)
-
-#     return second_derivative_at_target
-
-
-# @njit
-# def fast_compute_frequencies(Wx_dd, Wy_dd, Wz_dd, Q, M):
-#     """🚀 Numba-accelerated computation of frequencies after polyfit is done."""
-#     frequencies = np.zeros(3)
-#     frequencies[0] = np.sqrt((Q / M) * abs(Wx_dd)) / (2 * np.pi)
-#     frequencies[1] = np.sqrt((Q / M) * abs(Wy_dd)) / (2 * np.pi)
-#     frequencies[2] = np.sqrt((Q / M) * abs(Wz_dd)) / (2 * np.pi)
-#     return frequencies
+        # Finding bottlenecks in run time
+        # print(f"Time taken for data extraction: {time2 - time1:.4f} seconds")
+        # print(f"Time taken for filtering: {time3 - time2:.4f} seconds")
+        # print(f"Time taken for fitting: {time4 - time3:.4f} seconds")
+        # print(f"Time taken for total: {time4 - time1:.4f} seconds")
+        if return_coefs:
+            return [w1, w2, w3], [wx, wy, wz], eigenvec, coeff
+        else:
+            return [w1, w2, w3], [wx, wy, wz], eigenvec

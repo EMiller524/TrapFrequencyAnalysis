@@ -1,5 +1,7 @@
-# make a function to print a string with numbers seperated by commas with the numbers seperated by x distance and centered at zero
-
+'''
+This file is just to generate the stings that get copyied and pasted into COMSOL
+See the comments below to see the params used to make each grid type
+'''
 
 def print_numbers_separated_by_distance(x, n):
     # Generate the numbers centered at zero
@@ -16,7 +18,6 @@ def print_numbers_separated_by_distance(x, n):
 
 
 # Example usage
-# print_numbers_separated_by_distance(0.005, 160)
 print_numbers_separated_by_distance(0.000125, 640)
 
 # Grid 1
@@ -28,16 +29,3 @@ print_numbers_separated_by_distance(0.000125, 640)
 # X --> print_numbers_separated_by_distance(0.005, 160)
 # Y --> print_numbers_separated_by_distance(0.000125, 640)
 # Z --> print_numbers_separated_by_distance(0.000125, 640)
-
-
-# Z
-# -0.1, -0.08, -0.06, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06, 0.08, 0.1
-
-# X
-# -0.5, -0.45, -0.4, -0.35, -0.3, -0.25, -0.2, -0.15, -0.1, -0.05, 0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5
-
-# Y
-# -0.1, -0.08, -0.06, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06, 0.08, 0.1
-
-
-# Grid 1
