@@ -3,6 +3,7 @@ This file is to define the Electrode_vars class and functions to create instance
 See Constants.py for the electrode naming convention
 '''
 
+import math
 import constants
 
 class Electrode_vars:
@@ -51,6 +52,18 @@ class Electrode_vars:
     def get_phase(self, electrode):
         return self.vars[electrode][3]
 
+    def set_amplitude(self, electrode, amplitude):
+        self.vars[electrode][0] = amplitude
+
+    def set_frequency(self, electrode, frequency):
+        self.vars[electrode][1] = frequency
+
+    def set_offset(self, electrode, offset):
+        self.vars[electrode][2] = offset
+
+    def set_phase(self, electrode, phase):
+        self.vars[electrode][3] = phase
+
 
 def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
     '''
@@ -65,18 +78,18 @@ def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
     RF1 = [rfamp, rffreq, twist, 0]
     RF2 = [rfamp, rffreq, twist, 0]
 
-    DC1 = [0, 0, endcaps - twist, 0]
-    DC2 = [0, 0, -twist, 0]
-    DC3 = [0, 0, -twist, 0]
-    DC4 = [0, 0, -twist, 0]
-    DC5 = [0, 0, endcaps - twist, 0]
-    DC6 = [0, 0, endcaps - twist, 0]
-    DC7 = [0, 0, -twist, 0]
-    DC8 = [0, 0, -twist, 0]
-    DC9 = [0, 0, -twist, 0]
-    DC10 = [0, 0, endcaps - twist, 0]
+    DC1 = [0, rffreq, endcaps - twist, 0]
+    DC2 = [0, rffreq, -twist, 0]
+    DC3 = [0, rffreq, -twist, 0]
+    DC4 = [0, rffreq, -twist, 0]
+    DC5 = [0, rffreq, endcaps - twist, 0]
+    DC6 = [0, rffreq, endcaps - twist, 0]
+    DC7 = [0, rffreq, -twist, 0]
+    DC8 = [0, rffreq, -twist, 0]
+    DC9 = [0, rffreq, -twist, 0]
+    DC10 = [0, rffreq, endcaps - twist, 0]
 
-    return Electrode_vars(
+    elecvars =  Electrode_vars(
         DC1=DC1,
         DC2=DC2,
         DC3=DC3,
@@ -90,6 +103,8 @@ def get_electrodvars_w_twist(rfamp, rffreq, twist, endcaps):
         RF1=RF1,
         RF2=RF2,
     )
+    add_trap_capacitence_to_electrodvars(elecvars)  # add capacitance to the electrode variables
+    return elecvars
 
 
 def get_electrodvars_w_twist_and_push(
@@ -152,3 +167,35 @@ def get_electrodvars_w_list(list_of_vars):
                           DC10 = list_of_vars[9],
                           RF1 = list_of_vars[10],
                           RF2 = list_of_vars[11])
+
+def add_trap_capacitence_to_electrodvars(electrode_varss):
+    '''
+    Adds capacitence to the electrode_vars object.
+    The capacitence is added to the DC electrodes only.
+    '''
+
+    rf_amp = electrode_varss.get_amplitude("RF1")
+
+    for electrode in constants.electrode_names:
+        prevamp = electrode_varss.get_amplitude(electrode)
+        newamp = constants.electrode_RF_pickoff_amp_multipliers[electrode] * rf_amp
+        electrode_varss.set_amplitude(
+            electrode,
+            prevamp
+            + newamp
+        )
+
+def get_electrodvars_w_oddities(val):
+    evarss = get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 2)
+    evarss.vars["DC1"][2] += val
+    evarss.vars["DC2"][2] += val/10
+    evarss.vars["DC3"][2] += -val/10
+    evarss.vars["DC4"][2] += -val/2
+    evarss.vars["DC5"][2] += -val
+    evarss.vars["DC6"][2] += val
+    evarss.vars["DC7"][2] += val/2
+    evarss.vars["DC8"][2] += val/10
+    evarss.vars["DC9"][2] += -val/2
+    evarss.vars["DC10"][2] += -val
+    
+    return evarss

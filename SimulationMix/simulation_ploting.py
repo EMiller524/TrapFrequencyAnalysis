@@ -1,6 +1,6 @@
-'''
+"""
 This file will contain the class sim_ploting
-'''
+"""
 
 import math
 from matplotlib import pyplot as plt
@@ -13,20 +13,20 @@ from scipy.interpolate import RBFInterpolator
 
 
 class sim_ploting:
-    '''
+    """
     This class will be inherited by the simulation class and will contain all the plotting functions for the simulation data.
     And also any funtion related to visualizing data
-    '''
+    """
 
     def plot_2d_color_contour_Vraw(self, point, axis):
         """
         plots the raw total voltage in the plane defined by "point", "axis"
         from self.total_voltage_df as a 2d contour plot
-        
+
         args:
             point: the value of the axis to plot (e.g. if axis = 'x', then point = x value to plot)
             axis: the axis to plot (e.g. 'x', 'y', or 'z')
-        returns:    
+        returns:
             None, but shows the plot
         """
 
@@ -38,7 +38,7 @@ class sim_ploting:
             axis2_label = "z (m)"
             axis1_data = filtered_df["y"].values
             axis2_data = filtered_df["z"].values
-            v_data = filtered_df["CalcV"].values
+            v_data = filtered_df["TotalV"].values
 
         elif axis == "y":
             filtered_df = df[df["y"] == point]
@@ -46,14 +46,14 @@ class sim_ploting:
             axis2_label = "z (m)"
             axis1_data = filtered_df["x"].values
             axis2_data = filtered_df["z"].values
-            v_data = filtered_df["CalcV"].values
+            v_data = filtered_df["TotalV"].values
         elif axis == "z":
             filtered_df = df[df["z"] == point]
             axis1_label = "x (m)"
             axis2_label = "y (m)"
             axis1_data = filtered_df["x"].values
             axis2_data = filtered_df["y"].values
-            v_data = filtered_df["CalcV"].values
+            v_data = filtered_df["TotalV"].values
 
         # Define grid for interpolation
         xi = np.linspace(axis1_data.min(), axis1_data.max(), 1000)
@@ -61,25 +61,33 @@ class sim_ploting:
         X, Y = np.meshgrid(xi, yi)
 
         # Interpolate z values on the grid
-        Z = griddata((axis1_data, axis2_data), v_data, (X, Y), method='nearest')  # Use 'linear' or 'nearest' if needed
+        Z = griddata(
+            (axis1_data, axis2_data), v_data, (X, Y), method="nearest"
+        )  # Use 'linear' or 'nearest' if needed
 
         # Plot contour
         plt.figure(figsize=(8, 6))
-        contour_filled = plt.contourf(X, Y, Z, levels=50, cmap='viridis')  # Color map
+        contour_filled = plt.contourf(X, Y, Z, levels=50, cmap="viridis")  # Color map
         plt.colorbar(contour_filled)
 
         # Add contour lines with solid black lines
-        log_levels = np.logspace(np.log10(Z.min()+1e-12), np.log10(Z.max()), num=20)  # Avoid log(0)
-        contour_lines = plt.contour(X, Y, Z, levels=log_levels, colors='black', linewidths=.5)
-        plt.clabel(contour_lines, inline=True, fontsize=8)  # Add labels to contour lines
+        log_levels = np.logspace(
+            np.log10(Z.min() + 1e-12), np.log10(Z.max()), num=20
+        )  # Avoid log(0)
+        contour_lines = plt.contour(
+            X, Y, Z, levels=log_levels, colors="black", linewidths=0.5
+        )
+        plt.clabel(
+            contour_lines, inline=True, fontsize=8
+        )  # Add labels to contour lines
 
         # Scatter original points
-        plt.scatter(axis1_data, axis2_data, c='black', s=.1)
+        plt.scatter(axis1_data, axis2_data, c="black", s=0.1)
 
         # Labels and title
         plt.xlabel(axis1_label)
         plt.ylabel(axis2_label)
-        plt.title('2D Contour/Color Plot of TotalVoltage vs Space')
+        plt.title("2D Contour/Color Plot of TotalVoltage vs Space")
 
         # Show plot
         plt.show()
@@ -94,7 +102,7 @@ class sim_ploting:
         x_data = df["x"].values
         y_data = df["y"].values
         z_data = df["z"].values
-        v_data = df["CalcV"].values
+        v_data = df["TotalV"].values
 
         # Uniformly downsample the data (keep every Nth point)
         N = max(len(x_data) // 1000000, 10)  # Auto-tune to keep ~100K points
@@ -119,16 +127,21 @@ class sim_ploting:
         ]
 
         # Compute a reasonable epsilon (based on mean spacing between points)
-        avg_spacing = np.mean([np.ptp(xi) / grid_size, np.ptp(yi) / grid_size, np.ptp(zi) / grid_size])
+        avg_spacing = np.mean(
+            [np.ptp(xi) / grid_size, np.ptp(yi) / grid_size, np.ptp(zi) / grid_size]
+        )
         epsilon = avg_spacing * 2  # Scale factor to control smoothness
 
         # Use RBF Interpolation (much faster than griddata)
         interp_func = RBFInterpolator(
-            np.column_stack((x_sample, y_sample, z_sample)), v_sample, kernel="multiquadric", epsilon=epsilon
+            np.column_stack((x_sample, y_sample, z_sample)),
+            v_sample,
+            kernel="multiquadric",
+            epsilon=epsilon,
         )
-        V_interp = interp_func(np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))).reshape(
-            X.shape
-        )
+        V_interp = interp_func(
+            np.column_stack((X.ravel(), Y.ravel(), Z.ravel()))
+        ).reshape(X.shape)
 
         # Create figure and 3D axis
         fig = plt.figure(figsize=(10, 8))
@@ -169,10 +182,12 @@ class sim_ploting:
         return
 
     def plot_1d_Vraw(self, axis, x=0, y=0, z=0):
-        '''
-        plots the raw total voltage in the direction of axis (x,y,z) from self.total_voltage_df        
-        '''
-        return self.plot_value_in_blank_direction(self, x, y, z, axis, "TotalV", x_cutoff=1, y_cutoff=1, z_cutoff=1)
+        """
+        plots the raw total voltage in the direction of axis (x,y,z) from self.total_voltage_df
+        """
+        return self.plot_value_in_blank_direction(
+            self, x, y, z, axis, "TotalV", x_cutoff=1, y_cutoff=1, z_cutoff=1
+        )
 
     def plot_potential_in_xyz_directions(
         self, x, y, z, x_cutoff=10, y_cutoff=10, z_cutoff=10
@@ -213,7 +228,7 @@ class sim_ploting:
                 ]
 
             # fit the potential vs the axis values to a 4th degree polynomial
-            coeffs = np.polyfit(filtered_df[axis], filtered_df["CalcV"], 4)
+            coeffs = np.polyfit(filtered_df[axis], filtered_df["TotalV"], 4)
             poly = np.poly1d(coeffs)
             fitted_values = poly(filtered_df[axis])
 
@@ -230,9 +245,9 @@ class sim_ploting:
                 frameon=False,
             )
 
-            # now plot filtered df with axis as the x axis and CalcV as the y axis
-            # ax.plot(filtered_df[axis] * 1000, filtered_df["CalcV"], 'b-')
-            ax.scatter(filtered_df[axis] * 1000, filtered_df["CalcV"], color="r", s=10)
+            # now plot filtered df with axis as the x axis and  as the y axis
+            # ax.plot(filtered_df[axis] * 1000, filtered_df["tOTALv"], 'b-')
+            ax.scatter(filtered_df[axis] * 1000, filtered_df["TotalV"], color="r", s=10)
             ax.set_xlabel(f"{axis} (mm)")
             ax.set_ylabel("PseudoPotential (V)")
             ax.set_title(f"Calculated PseudoV along {axis} axis", fontsize=12)
@@ -316,18 +331,18 @@ class sim_ploting:
         """
         Returns a fig that plots value vs direction starting at the point(x,y,z) and moving in the direction.
         For example, if direction = "x" and value = "TotalV", then the graph will be of the potential vs x.
-        
+
         args:
             x, y, z: the point to start the plot from
             direction: the direction to plot in (x, y, or z)
-            value: the value to plot (e.g. "TotalV", "CalcV", "Wx", "Wy", "Wz", "EMag")
+            value: the value to plot (e.g. "TotalV", "Wx", "Wy", "Wz", "EMag")
             x_cutoff, y_cutoff, z_cutoff: the cutoff values for each direction to limit the plot range (input in microns)
         """
 
         # convert cutoffs to meters from microns
-        x_cutoff = x_cutoff * .000001
-        y_cutoff = y_cutoff * .000001
-        z_cutoff = z_cutoff * .000001
+        x_cutoff = x_cutoff * 0.000001
+        y_cutoff = y_cutoff * 0.000001
+        z_cutoff = z_cutoff * 0.000001
 
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
@@ -464,21 +479,21 @@ class sim_ploting:
     def get_main_report(self, name):
         """
         This fucntion is old, and not exactly physicaly relavant (not always looking at the min)
-        
+
         Many things are ploted and saved in a pdf in repts/ with the name given:
             # Plot 1-3 PseudoPot in x,y,z directions (3 graphs)
             # Plot 4-6 Wx vs x Wy vs y Wz Vs z (3 graphs)
             # Plot 7 Wy vs x Wz vs x and We vs x (1 graph)
-        
+
         The above may not be in the right order, or even correct
         """
-        plot1 = self.plot_value_in_blank_direction(0, 0, 0, "x", "CalcV")
+        plot1 = self.plot_value_in_blank_direction(0, 0, 0, "x", "TotalV")
 
         plot21 = self.plot_value_in_blank_direction(
-            0, 0, 0, "y", "CalcV", y_cutoff=0.000025
+            0, 0, 0, "y", "TotalV", y_cutoff=0.000025
         )
         plot22 = self.plot_value_in_blank_direction(
-            0, 0, 0, "z", "CalcV", z_cutoff=0.000025
+            0, 0, 0, "z", "TotalV", z_cutoff=0.000025
         )
 
         plot3 = self.plot_value_in_blank_direction(0, 0, 0, "x", "Wx")

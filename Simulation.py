@@ -202,7 +202,7 @@ class Simulation(sim_ploting, sim_normalfitting):
 
         if step_size <= 4.9:
             raise ValueError("Step size must be greater than 0.")
-        
+
         step_size = step_size * 1e-6  # Convert microns to meters for calculations
 
         if self.total_voltage_df is None:
@@ -210,7 +210,7 @@ class Simulation(sim_ploting, sim_normalfitting):
             return None
         time1 = time.time()
 
-        # Sort by CalcV to find the minimum values
+        # Sort by TotalV to find the minimum values
 
         def find_nsmallest_df(df, colname, n=100):
             # 1) Extract column values
@@ -300,7 +300,7 @@ class Simulation(sim_ploting, sim_normalfitting):
         # print("min_point: ", min_point)
         return best_fit_minimum, min_point
 
-    def get_principal_freq_at_min(self, getmintoo = False, fitdeg = 4, look_around = 5):
+    def get_principal_freq_at_min(self, getall = False, fitdeg = 4, look_around = 5, return_coefs = False):
         '''
         This fuction finds the principal frequency at the minimum point of the total voltage.
         To do so the minimum in the potential well is found and then at this point a R3 fit is performed to find the eigenfrequencies and eigenvectors.
@@ -317,9 +317,19 @@ class Simulation(sim_ploting, sim_normalfitting):
             min2 (array): The original minimum point (x,y,z) in meters.
         '''
         min1, min2 = self.find_V_min()
-        eigenfreq, axialfreq, eigendir = self.get_freqs_at_point_withR3_fit(
-            min1[0], min1[1], min1[2], look_around=look_around, polyfit=fitdeg
-        )
+        if return_coefs:
+            eigenfreq, axialfreq, eigendir, coefs = self.get_freqs_at_point_withR3_fit(
+                min1[0],
+                min1[1],
+                min1[2],
+                look_around=look_around,
+                polyfit=fitdeg,
+                return_coefs=True,
+            )
+        else:
+            eigenfreq, axialfreq, eigendir = self.get_freqs_at_point_withR3_fit(
+                min1[0], min1[1], min1[2], look_around=look_around, polyfit=fitdeg, return_coefs=False
+            )
 
         # Convert eigenfreq to a numpy array for sorting
         eigenfreq = np.array(eigenfreq)
@@ -336,7 +346,7 @@ class Simulation(sim_ploting, sim_normalfitting):
                 eigendir.T
             )  # Transpose so each column is an eigenvector
         }
-        if getmintoo:
-            return eigenfreq, eigendir_readable, min1, min2
+        if getall:
+            return eigenfreq, eigendir_readable, min1, min2, coefs
 
         return eigenfreq, eigendir_readable

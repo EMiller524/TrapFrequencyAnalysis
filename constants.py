@@ -38,20 +38,29 @@ electrode_names = (
     "RF2")
 
 
-trap_capcitence_per_electrode = {
-    "DC1": 0.01,
-    "DC2": 0.01,
-    "DC3": 0.01,
-    "DC4": 0.01,
-    "DC5": 0.01,
-    "DC6": 0.01,
-    "DC7": 0.01,
-    "DC8": 0.01,
-    "DC9": 0.01,
-    "DC10": 0.01,
+trap_capcitence_per_electrode_PF = {
+    "DC1": 0.155,
+    "DC2": 0.068,
+    "DC3": 0.125,
+    "DC4": 0.075,
+    "DC5": 0.157,
+    "DC6": 0.157,
+    "DC7": 0.076,
+    "DC8": 0.125,
+    "DC9": 0.068,
+    "DC10": 0.155,
     "RF1": 0.01,
     "RF2": 0.01
 }
+
+ground_capacitor_PF = 1000 # PF
+
+electrode_RF_pickoff_amp_multipliers = {}
+for electrode in trap_capcitence_per_electrode_PF:
+    electrode_RF_pickoff_amp_multipliers[electrode] = (
+        trap_capcitence_per_electrode_PF[electrode] / (trap_capcitence_per_electrode_PF[electrode] + ground_capacitor_PF)
+    )
+
 
 def freq_calcualtion(secondderivative):
     return (
@@ -59,3 +68,4 @@ def freq_calcualtion(secondderivative):
         * math.sqrt((ion_charge / ion_mass) * abs(secondderivative))
         / (2 * math.pi)
     )
+

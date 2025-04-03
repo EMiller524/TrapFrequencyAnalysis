@@ -6,6 +6,7 @@ from itertools import combinations_with_replacement
 import math
 import random
 import time
+from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from matplotlib import pyplot as plt
@@ -33,9 +34,9 @@ class sim_normalfitting:
         Returns:
             list: [freq_x, freq_y, freq_z]
         """
-        
+
         look_around = look_around * 0.000001  # Convert microns to meters
-        
+
         if self.total_voltage_df is None:
             print("Total voltage data is not available.")
             return None
@@ -154,7 +155,7 @@ class sim_normalfitting:
         Returns:
             list: [freq_y, freq_z]
         """
-        
+
         look_around = look_around * 0.000001  # Convert microns to meters
 
         if self.total_voltage_df is None:
@@ -323,6 +324,34 @@ class sim_normalfitting:
             # print(poly.get_feature_names_out())
             # print(coeff)
 
+            ## normalized fit ########################################################################
+            scaler = StandardScaler()
+            axis_values_scaled = scaler.fit_transform(axis_values)  # shape (n_samples, 3)
+            X_poly_scaled = poly.fit_transform(axis_values_scaled)
+
+            model_scaled = LinearRegression()
+            model_scaled.fit(X_poly_scaled, voltage_values)
+            normalized_coeff = model_scaled.coef_
+            
+            # Get transformed standardized input
+            X_poly_scaled = poly.fit_transform(scaler.transform(axis_values))
+
+            # Term-wise contribution (absolute)
+            contributions = np.abs(X_poly_scaled * normalized_coeff)  # shape: (n_samples, n_terms)
+
+            # Mean contribution of each term
+            mean_contribution = contributions.mean(axis=0)
+            
+            # Step 3: Normalize so they sum to 1000
+            normalized_weights = (mean_contribution / mean_contribution.sum()) * 1000
+
+            # Now you can rank or normalize these
+            relative_importance = mean_contribution / mean_contribution.sum()
+            
+            term_stds = X_poly_scaled.std(axis=0)
+            scaled_coeffs = normalized_coeff * term_stds
+            ## end normalized fit ####################################################################
+
             # get the second derivative of the polynomial at the origin
             dd_xx = 2 * coeff[4]
             dd_yy = 2 * coeff[7]
@@ -355,12 +384,9 @@ class sim_normalfitting:
             # TODO: Check if the 2nd deg terms fit well, IE: r2>.99
 
             if return_coefs:
-                return eigenvalues, eigenvectors, axial_dds, coeff
+                return eigenvalues, eigenvectors, axial_dds, relative_importance*10000
             else:
                 return eigenvalues, eigenvectors, axial_dds
-
-        Q = constants.ion_charge
-        M = constants.ion_mass
 
         time2 = time.time()
 
