@@ -4,6 +4,30 @@ Random notes pls ignore
 
 '''
 
+
+
+
+
+
+
+the classic 3n X 3n matrix diagnolization assumes harmonic…
+I think the higher order tensors should hold information as to how these modes interact
+Maybe the 3rd and 4th (3n x 3n x 3n x 3n) forms will have a reasonable extraction process?
+Like maybe you assume harmonicity, then you change the basis of 3rd and 4th tensors with the R^3n eigenvectors found, and then a diagnolization process can give some insight…
+For example, the pairwise output would represent the “cross talk” between those 2 modes (or 3 or 4)... 
+
+
+
+
+
+
+
+
+
+
+
+
+
 Equations/constants to confirm:
 
 trap_freq_k = sqrt(

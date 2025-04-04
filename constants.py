@@ -69,3 +69,4 @@ def freq_calcualtion(secondderivative):
         / (2 * math.pi)
     )
 
+ion_electrode_dis = .00025

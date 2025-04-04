@@ -317,7 +317,7 @@ class Simulation(sim_ploting, sim_normalfitting):
             min2 (array): The original minimum point (x,y,z) in meters.
         '''
         min1, min2 = self.find_V_min()
-        if return_coefs:
+        if return_coefs or getall:
             eigenfreq, axialfreq, eigendir, coefs = self.get_freqs_at_point_withR3_fit(
                 min1[0],
                 min1[1],

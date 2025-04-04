@@ -35,7 +35,7 @@ def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop=1, step_size=0.1)
             )
         )
 
-        freqs, eigendir, minreal, min_snap = test_sim.get_principal_freq_at_min(
+        freqs, eigendir, minreal, min_snap, coeffs = test_sim.get_principal_freq_at_min(
             getall=True
         )
 
@@ -50,7 +50,7 @@ def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop=1, step_size=0.1)
             )
         )
 
-        freqs, eigendir, minreal, min_snap = test_sim.get_principal_freq_at_min(
+        freqs, eigendir, minreal, min_snap, coeffs = test_sim.get_principal_freq_at_min(
             getall=True
         )
 
@@ -97,7 +97,7 @@ def test_against_expected_once(rfamp, rffreq, simulation=Simulation):
         * (
             rfamp / (rffreq * (2 * math.pi))
         )  # RF frequency (units are only for god to know)
-        * (1 / ((0.00025) ** 2))
+        * (1 / ((constants.ion_electrode_dis) ** 2))
     )
     simulation.change_electrode_variables(
         evars.get_electrodvars_w_twist(rfamp, rffreq, 0, 0)

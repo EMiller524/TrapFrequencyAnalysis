@@ -296,6 +296,8 @@ class sim_normalfitting:
             print("Total voltage data is not available.")
             return None
 
+        ## TODO: make sure enough data points, number param ^2
+
         def fit_and_get_second_derivative_withR3(
             axis_values, voltage_values
         ):

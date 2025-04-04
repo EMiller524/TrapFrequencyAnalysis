@@ -21,7 +21,7 @@ tstart = time.time()
 evarsss = evars.get_electrodvars_w_oddities(2)
 sim = Simulation("Simp58_101", evarsss)
 rel_import = sim.get_principal_freq_at_min(
-        getall=True, look_around=5, fitdeg=2, return_coefs=True
+        getall=True, look_around=5, fitdeg=4, return_coefs=True
     )[4]
 
 # make each term in rel_import be rounded to 3
@@ -29,11 +29,14 @@ rel_import = [str(round(x, 3)) for x in rel_import]
 print(rel_import)
 
 
-# # testsim1 = Simulation("hyper_2", electrodes)
+## Plot
 # testsim2 = Simulation("Simp58_101", electrodes)
-# # print(testsim1.get_principal_freq_at_min(getmintoo=False, look_around=5, fitdeg=4)[0][2])
-# print(testsim2.get_principal_freq_at_min(getmintoo=False, look_around=50, fitdeg=4)[0])
+# print(testsim2.get_principal_freq_at_min(getall=False, look_around=50, fitdeg=4)[0])
 # testsim2.plot_2d_color_contour_Vraw(0, "x")
+
+
+# fig = experiment_funcs.recreate_old_data(377, 25500000 * 2 * math.pi, -0.275, 2, push_stop=1.5, step_size=0.1)
+
 
 
 # for i in range(100):
