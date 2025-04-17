@@ -19,9 +19,12 @@ Electode Naming Diagram:
 
 import math
 
+import numpy as np
 
-ion_mass = 2.885 * (10 **(-25)) #kg
-ion_charge = 1.60217662  * (10 **(-19)) #C
+
+ion_mass = 2.885 * (10 ** (-25))  # kg
+ion_charge = 1.60217662 * (10 ** (-19))  # C
+epsilon_0 = 8.854187817e-12  # F/m
 
 electrode_names = (
     "DC1",
@@ -35,7 +38,8 @@ electrode_names = (
     "DC9",
     "DC10",
     "RF1",
-    "RF2")
+    "RF2",
+)
 
 
 trap_capcitence_per_electrode_PF = {
@@ -50,16 +54,16 @@ trap_capcitence_per_electrode_PF = {
     "DC9": 0.068,
     "DC10": 0.155,
     "RF1": 0.01,
-    "RF2": 0.01
+    "RF2": 0.01,
 }
 
-ground_capacitor_PF = 1000 # PF
+ground_capacitor_PF = 1000  # PF
 
 electrode_RF_pickoff_amp_multipliers = {}
 for electrode in trap_capcitence_per_electrode_PF:
-    electrode_RF_pickoff_amp_multipliers[electrode] = (
-        trap_capcitence_per_electrode_PF[electrode] / (trap_capcitence_per_electrode_PF[electrode] + ground_capacitor_PF)
-    )
+    electrode_RF_pickoff_amp_multipliers[electrode] = trap_capcitence_per_electrode_PF[
+        electrode
+    ] / (trap_capcitence_per_electrode_PF[electrode] + ground_capacitor_PF)
 
 
 def freq_calcualtion(secondderivative):
@@ -69,4 +73,117 @@ def freq_calcualtion(secondderivative):
         / (2 * math.pi)
     )
 
-ion_electrode_dis = .00025
+
+ion_electrode_dis = 0.00025
+
+
+max_ion_in_chain = 10
+
+coulomb_constant = 8.9875517873681764 * (10**9)  # N m^2 / C^2
+
+# Should be a flat list/array of length 3n
+ion_locations_intial_guess = {}
+
+# Should be length 3n list of (low, high)
+ion_locations_bounds = {}
+
+# Length in harmonic apoximation
+Z = 1
+typical_axial_freq = 225000 * 6.28  # Hz
+length_harmonic_approximation = (
+    (Z**2 * ion_charge**2) / (4 * 3.1416 * epsilon_0 * ion_mass * typical_axial_freq**2)
+) ** (1 / 3)
+
+print("Length in harmonic approximation: ", length_harmonic_approximation)
+
+# Intial equilib positions nomallized by l:
+ion_locations_intial_guess[1] = [[0, 0, 0]]
+ion_locations_intial_guess[2] = [[-0.62996, 0, 0], [0.62996, 0, 0]]
+ion_locations_intial_guess[3] = [[-1.3772, 0, 0], [0, 0, 0], [1.3772, 0, 0]]
+ion_locations_intial_guess[4] = [
+    [-1.4368, 0, 0],
+    [-0.55438, 0, 0],
+    [-0.45438, 0, 0],
+    [1.4368, 0, 0],
+]
+ion_locations_intial_guess[5] = [
+    [-1.7429, 0, 0],
+    [-0.8221, 0, 0],
+    [0, 0, 0],
+    [0.8221, 0, 0],
+    [1.7429, 0, 0],
+]
+ion_locations_intial_guess[6] = [
+    [-1.9, 0, 0],
+    [-1.1, 0, 0],
+    [-0.3, 0, 0],
+    [0.3, 0, 0],
+    [1.1, 0, 0],
+    [1.9, 0, 0],
+]
+ion_locations_intial_guess[7] = [
+    [-2.0, 0, 0],
+    [-1.3, 0, 0],
+    [-0.7, 0, 0],
+    [0, 0, 0],
+    [0.7, 0, 0],
+    [1.3, 0, 0],
+    [2.0, 0, 0],
+]
+ion_locations_intial_guess[8] = [
+    [-2.1, 0, 0],
+    [-1.5, 0, 0],
+    [-0.9, 0, 0],
+    [-0.3, 0, 0],
+    [0.3, 0, 0],
+    [0.9, 0, 0],
+    [1.5, 0, 0],
+    [2.1, 0, 0],
+]
+ion_locations_intial_guess[9] = [
+    [-2.2, 0, 0],
+    [-1.7, 0, 0],
+    [-1.1, 0, 0],
+    [-0.5, 0, 0],
+    [0, 0, 0],
+    [0.5, 0, 0],
+    [1.1, 0, 0],
+    [1.7, 0, 0],
+    [2.2, 0, 0],
+]
+ion_locations_intial_guess[10] = [
+    [-2.3, 0, 0],
+    [-1.9, 0, 0],
+    [-1.3, 0, 0],
+    [-0.7, 0, 0],
+    [-0.1, 0, 0],
+    [0.1, 0, 0],
+    [0.7, 0, 0],
+    [1.3, 0, 0],
+    [1.9, 0, 0],
+    [2.3, 0, 0],
+]
+
+
+
+for i in range(1, max_ion_in_chain + 1):
+    for pnt in range(len(ion_locations_intial_guess[i])):
+        ion_locations_intial_guess[i][pnt][0] = (
+            ion_locations_intial_guess[i][pnt][0] * length_harmonic_approximation
+        )
+    ion_locations_bounds[i] = [
+        (-200e-6, 200e-6),
+        (-1e-6, 1e-6),
+        (-1e-6, 1e-6),
+    ] * (i)
+
+
+print("Constants loaded")
+print("Ion locations intial guess: ", ion_locations_intial_guess[6])
+print("Ion locations intial guess: ", ion_locations_intial_guess[7])
+print("Ion locations intial guess: ", ion_locations_intial_guess[8])
+print("Ion locations intial guess: ", ion_locations_intial_guess[9])
+print("Ion locations intial guess: ", ion_locations_intial_guess[10])
+# print("Ion locations bounds: ", ion_locations_bounds)
+# init_guess_flatened = np.array(ion_locations_intial_guess[3]).flatten()
+# print("init_guess_flatened: ", init_guess_flatened)

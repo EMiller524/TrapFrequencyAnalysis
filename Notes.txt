@@ -4,6 +4,20 @@ Random notes pls ignore
 
 '''
 
+Gradient Debugging:
+
+    Current known problems:
+    - Not fully repeatable, within 5 runs may alternate between 2-3 soulutions
+    - One of these soulutions is usualy the initial guess (no matter)
+    - Some will get fully stuck on the inital guess (ie never returning something but the intial guess)
+    - 
+
+    Possible fixes:
+    - Bassinhopoing <-- Takes a long time
+    - Run 5 times over... and take Umin
+    - Dig into why getting stuck on intial pos... sometimes not even close to known...
+
+
 
 
 
