@@ -1,5 +1,5 @@
 """
-This file contains functions to run experments using simulation
+This file contains functions to run experiments using simulation
 """
 
 import math
@@ -109,9 +109,7 @@ def test_against_expected_once(rfamp, rffreq, simulation=Simulation):
     return 100 * abs(expected - actual) / expected
 
 
-def test_against_expected_many(
-    rfamp_min, rfamp_max, rffreq_min, rffreq_max, breakpoints=5, simulation="Hyper_2"
-):
+def test_against_expected_many(rfamp_min, rfamp_max, rffreq_min, rffreq_max, breakpoints=5, simulation="Hyper_2"):
     """
     Perform multiple tests against expected values for a range of RF amplitudes and frequencies.
 
