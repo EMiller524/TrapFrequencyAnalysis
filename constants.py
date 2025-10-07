@@ -17,6 +17,8 @@ Electode Naming Diagram:
 
 """
 
+# TODO make this read from a config file ST a UI could eazily edit
+
 import math
 
 import numpy as np
@@ -77,7 +79,7 @@ def freq_calcualtion(secondderivative):
 ion_electrode_dis = 0.00025
 
 
-max_ion_in_chain = 10
+max_ion_in_chain = 5
 
 coulomb_constant = 8.9875517873681764 * (10**9)  # N m^2 / C^2
 
@@ -177,13 +179,17 @@ for i in range(1, max_ion_in_chain + 1):
         (-1e-6, 1e-6),
     ] * (i)
 
+# print("Constants loaded")
 
-print("Constants loaded")
-print("Ion locations intial guess: ", ion_locations_intial_guess[6])
-print("Ion locations intial guess: ", ion_locations_intial_guess[7])
-print("Ion locations intial guess: ", ion_locations_intial_guess[8])
-print("Ion locations intial guess: ", ion_locations_intial_guess[9])
-print("Ion locations intial guess: ", ion_locations_intial_guess[10])
-# print("Ion locations bounds: ", ion_locations_bounds)
+
+
+# testing
+
+# print("Ion locations intial guess: ", ion_locations_intial_guess[6])
+# print("Ion locations intial guess: ", ion_locations_intial_guess[7])
+# print("Ion locations intial guess: ", ion_locations_intial_guess[8])
+# print("Ion locations intial guess: ", ion_locations_intial_guess[9])
+# print("Ion locations intial guess: ", ion_locations_intial_guess[10])
+# # print("Ion locations bounds: ", ion_locations_bounds)
 # init_guess_flatened = np.array(ion_locations_intial_guess[3]).flatten()
 # print("init_guess_flatened: ", init_guess_flatened)

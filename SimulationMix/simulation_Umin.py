@@ -524,17 +524,18 @@ class U_energy:
                                     Tensor4[i1, i2, i3, i4] += d4_val
         return Tensor4
 
+    # look over
     def get_mode_eigenvec_and_val(self, num_ions, sort_by = "FreqAbs"):
         """
         This function will return the eigenvalues and eigenvectors of the hessian matrix, in the desired order.
         """
         # get hessian
         hessian = self.get_eq_U_hessian(num_ions)
-        
+
         # diagonalize hessian
         eigvals, eigvecs = np.linalg.eigh(hessian)
         print(len(eigvals))
-        
+
         # sort eigenvalues and eigenvectors
         if sort_by == "FreqAbs":
             # sort by absolute value of eigenvalues
@@ -546,92 +547,180 @@ class U_energy:
         # sort eigenvalues and eigenvectors
         sorted_eigvals = eigvals[indices]
         sorted_eigvecs = eigvecs[:, indices]
-
+        self.ion_eigenvectors[num_ions] = sorted_eigvecs
+        self.ion_eigenvalues[num_ions] = sorted_eigvals
+        print("stored", num_ions)
         return sorted_eigvals, sorted_eigvecs
-        
 
-    def get_mode_couplings(self):
+    # not writen
+    def get_mode_couplings(self, num_ions):
         pass
 
-    # def get_U_using_polyfit(self, ionpos_flat):
-    #     n = len(ionpos_flat) // 3
-    #     positions = ionpos_flat.reshape((n, 3))
+    # bullshited... nessicarily zero in a single frequency trap...
+    def get_2_wise_mode_couplings(self, num_ions):
+        """
+        This will be done by just check for frequency matching, nothing fancy.
+        """
+        err_allowed = 1.1
+        possible_freqs = []
+        electrode_vars = self.electrode_vars
 
-    #     U_trap = 0.0
-    #     U_coulomb = 0.0
+        for blade in constants.electrode_names:
+            possible_freqs.append(electrode_vars.get_frequency(blade))
 
-    #     for ion in range(n):
-    #         x, y, z = positions[ion]
+        print(possible_freqs)
+        yes_pairings = []
 
-    #         # Evaluate the model
-    #         voltage_at_point = self.evaluate_center_poly(x, y, z)
+        for freq1_val in self.ion_eigenvalues[num_ions]:
+            for freq2_val in self.ion_eigenvalues[num_ions]:
+                for freqdrive in possible_freqs:
+                    if freqdrive == 0:
+                        continue
+                    # Check if the frequencies are close enough
+                    freq1 = self.get_freq_from_eigenvalue(freq1_val)
+                    freq2 = self.get_freq_from_eigenvalue(freq2_val)
+                    print(abs(abs(freq1 - freq2) / freqdrive))
+                    if (
+                        freqdrive/err_allowed < abs(freq1 - freq2) < err_allowed * freqdrive
+                    ):
+                        # If they are, add them to the list of possible frequencies
+                        yes_pairings.append((freq1, freq2, freqdrive))
 
-    #         U_trap += voltage_at_point * constants.ion_charge
+        return yes_pairings
+  
+    def get_freq_from_eigenvalue(self, val):
+        return math.sqrt(val / constants.ion_mass) / (2 * math.pi)
 
-    #     epsilon = 1e-28  # small buffer to avoid division-by-zero issues
-    #     for i in range(n):
-    #         for j in range(n):
-    #             if i == j:
-    #                 continue
-    #             dist = np.linalg.norm(positions[i] - positions[j])
-    #             dist = max(dist, epsilon)
-    #             U_coulomb += (
-    #                 constants.coulomb_constant * constants.ion_charge**2
-    #             ) / dist
+    # look over
+    def get_3_wise_mode_couplings(self, num_ions):
+        '''
+        This will be done by contracting the 3rd derivative tensor with the eigenvectors.
+        '''
+        tensor = self.get_eq_3rd_der_tensor(num_ions)
+        three_wise_couplings = {}
 
-    #     return (U_trap + U_coulomb/2) * 1e25
+        for modei in range(0,3*num_ions):
+            eigveci = self.ion_eigenvectors[num_ions][modei]  
+            coupling_i = np.tensordot(tensor, eigveci, axes=([0], [0]))
+            for modej in range(modei,3*num_ions):
+                eigvecj = self.ion_eigenvectors[num_ions][modej]
+                coupling_ij = np.tensordot(coupling_i, eigvecj, axes=([0], [0]))
+                for modek in range(modej,3*num_ions):
+                    eigveck = self.ion_eigenvectors[num_ions][modek]
+                    coupling_ijk = np.tensordot(coupling_ij, eigveck, axes=([0], [0]))
 
-    # def get_U_using_polyfit_zeroed(self, ionpos_flat):
-    #     n = len(ionpos_flat) // 3
-    #     inital_guess = constants.ion_locations_intial_guess[n]
-    #     initial_guess = np.array(inital_guess).flatten()
+                    three_wise_couplings[(modei, modej, modek)] = coupling_ijk
+                # contract the tensor with the eigenvector
+        return three_wise_couplings
 
-    #     return (
-    #         self.get_U_using_polyfit(ionpos_flat)
-    #         - self.get_U_using_polyfit(initial_guess)
-    #     )
+    # look over
+    def get_4_wise_mode_couplings(self, num_ions):
+        """
+        This will be done by contracting the 4th derivative tensor with the eigenvectors.
+        """
+        tensor = self.get_eq_4th_der_tensor(num_ions)
+        four_wise_couplings = {}
 
-    # def get_U_Grad_using_polyfit(self, ionpos_flat):
-    #     """
-    #     Ok we are going to re-write this such that the gradient is calcualted as if the U is set to zero at the initial_guess
-    #     """
-    #     n = len(ionpos_flat) // 3
-    #     positions = ionpos_flat.reshape((n, 3))
-    #     GradU = np.zeros(3 * n)
+        for modei in range(0, 3 * num_ions):
+            eigveci = self.ion_eigenvectors[num_ions][modei]
+            coupling_i = np.tensordot(tensor, eigveci, axes=([0], [0]))
+            for modej in range(modei, 3 * num_ions):
+                eigvecj = self.ion_eigenvectors[num_ions][modej]
+                coupling_ij = np.tensordot(coupling_i, eigvecj, axes=([0], [0]))
+                for modek in range(modej, 3 * num_ions):
+                    eigveck = self.ion_eigenvectors[num_ions][modek]
+                    coupling_ijk = np.tensordot(coupling_ij, eigveck, axes=([0], [0]))
+                    for model in range(modek, 3 * num_ions):
+                        eigvecl = self.ion_eigenvectors[num_ions][model]
+                        coupling_ijkl = np.tensordot(coupling_ijk, eigvecl, axes=([0], [0]))
 
-    #     for i in range(n):
-    #         xi, yi, zi = positions[i]
-    #         dU_dxi, dU_dyi, dU_dzi = self.evaluate_center_poly_1stderivatives(xi, yi, zi)
-    #         GradU[3*i] += dU_dxi * constants.ion_charge
-    #         GradU[3*i + 1] += dU_dyi * constants.ion_charge
-    #         GradU[3*i + 2] += dU_dzi * constants.ion_charge
+                        four_wise_couplings[(modei, modej, modek, model)] = coupling_ijkl
 
-    #         for j in range(n):
-    #             if i == j:
-    #                 continue
-    #             xj, yj, zj = positions[j]
-    #             dist = np.linalg.norm(positions[i] - positions[j])
-    #             dist = max(dist, 1e-12)
+                # contract the tensor with the eigenvector
+        return four_wise_couplings
 
-    #             GradU[3 * i] += (
-    #                 (constants.coulomb_constant * constants.ion_charge**2)
-    #                 * (xj - xi)
-    #                 / (dist) ** (3 / 2)
-    #             )
+    # unused?
+    def get_U_using_polyfit(self, ionpos_flat):
+        n = len(ionpos_flat) // 3
+        positions = ionpos_flat.reshape((n, 3))
 
-    #             GradU[3 * i + 1] += (
-    #                 (constants.coulomb_constant * constants.ion_charge**2)
-    #                 * (yj - yi)
-    #                 / (dist) ** (3 / 2)
-    #             )
+        U_trap = 0.0
+        U_coulomb = 0.0
 
-    #             GradU[3 * i + 2] += (
-    #                 (constants.coulomb_constant * constants.ion_charge**2)
-    #                 * (zj - zi)
-    #                 / (dist) ** (3 / 2)
-    #             )
+        for ion in range(n):
+            x, y, z = positions[ion]
 
-    #     return GradU * 1e25
+            # Evaluate the model
+            voltage_at_point = self.evaluate_center_poly(x, y, z)
+
+            U_trap += voltage_at_point * constants.ion_charge
+
+        epsilon = 1e-28  # small buffer to avoid division-by-zero issues
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                dist = np.linalg.norm(positions[i] - positions[j])
+                dist = max(dist, epsilon)
+                U_coulomb += (
+                    constants.coulomb_constant * constants.ion_charge**2
+                ) / dist
+
+        return (U_trap + U_coulomb/2) * 1e25
+
+    # unused?
+    def get_U_using_polyfit_zeroed(self, ionpos_flat):
+        n = len(ionpos_flat) // 3
+        inital_guess = constants.ion_locations_intial_guess[n]
+        initial_guess = np.array(inital_guess).flatten()
+
+        return (
+            self.get_U_using_polyfit(ionpos_flat)
+            - self.get_U_using_polyfit(initial_guess)
+        )
+
+    # unused?
+    def get_U_Grad_using_polyfit(self, ionpos_flat):
+        """
+        Ok we are going to re-write this such that the gradient is calcualted as if the U is set to zero at the initial_guess
+        """
+        n = len(ionpos_flat) // 3
+        positions = ionpos_flat.reshape((n, 3))
+        GradU = np.zeros(3 * n)
+
+        for i in range(n):
+            xi, yi, zi = positions[i]
+            dU_dxi, dU_dyi, dU_dzi = self.evaluate_center_poly_1stderivatives(xi, yi, zi)
+            GradU[3*i] += dU_dxi * constants.ion_charge
+            GradU[3*i + 1] += dU_dyi * constants.ion_charge
+            GradU[3*i + 2] += dU_dzi * constants.ion_charge
+
+            for j in range(n):
+                if i == j:
+                    continue
+                xj, yj, zj = positions[j]
+                dist = np.linalg.norm(positions[i] - positions[j])
+                dist = max(dist, 1e-12)
+
+                GradU[3 * i] += (
+                    (constants.coulomb_constant * constants.ion_charge**2)
+                    * (xj - xi)
+                    / (dist) ** (3 / 2)
+                )
+
+                GradU[3 * i + 1] += (
+                    (constants.coulomb_constant * constants.ion_charge**2)
+                    * (yj - yi)
+                    / (dist) ** (3 / 2)
+                )
+
+                GradU[3 * i + 2] += (
+                    (constants.coulomb_constant * constants.ion_charge**2)
+                    * (zj - zi)
+                    / (dist) ** (3 / 2)
+                )
+
+        return GradU * 1e25
 
     # Used
     def get_U_using_polyfit_dimensionless(self, ionpos_flat):
@@ -688,7 +777,7 @@ class U_energy:
         positions = ionpos_flat.reshape((n, 3))
         grad = np.zeros_like(positions)
 
-        # 🧲 Coulomb gradient (dimensionless)
+        # Coulomb gradient (dimensionless)
         for i in range(n):
             for j in range(n):
                 if i == j:
@@ -720,7 +809,7 @@ class U_energy:
 
         grad *= L_0  # scale to match energy units (same as U_coulomb * L_0)
 
-        # ⚡ Trap gradient (evaluate using SI positions)
+        # Trap gradient (evaluate using SI positions)
         for i in range(n):
             x, y, z = positions[i]
             dx, dy, dz = self.evaluate_center_poly_1stderivatives(
@@ -785,43 +874,44 @@ class U_energy:
         # return just the minimized positions
         return result.x.reshape((num_ions, 3)), result.fun
 
-    # def find_U_minimum_basin_hopping(self, num_ions, inital_guess=None):
-    #     """
-    #     Minimizes the total potential energy (trap potential + Coulomb)
-    #     for 'number_of_ions' ions using basin hopping.
-    #     """
-    #     if inital_guess is None:
-    #         init_guess_flat = np.array(
-    #             constants.ion_locations_intial_guess[num_ions]
-    #         ).flatten()
-    #     else:
-    #         init_guess_flat = inital_guess.flatten()
+    # failed attempt
+    def find_U_minimum_basin_hopping(self, num_ions, inital_guess=None):
+        """
+        Minimizes the total potential energy (trap potential + Coulomb)
+        for 'number_of_ions' ions using basin hopping.
+        """
+        if inital_guess is None:
+            init_guess_flat = np.array(
+                constants.ion_locations_intial_guess[num_ions]
+            ).flatten()
+        else:
+            init_guess_flat = inital_guess.flatten()
 
-    #     bounds = constants.ion_locations_bounds[num_ions]
+        bounds = constants.ion_locations_bounds[num_ions]
 
-    #     result = basinhopping(
-    #         self.get_U_using_polyfit_zeroed,
-    #         init_guess_flat,
-    #         niter=100,
-    #         T=1.0,
-    #         stepsize=0.5,
-    #         minimizer_kwargs={
-    #             "method": "L-BFGS-B",
-    #             "jac": self.get_U_Grad_using_polyfit,
-    #             "bounds": bounds,
-    #             "options": {"disp": True},
-    #         },
-    #     )
+        result = basinhopping(
+            self.get_U_using_polyfit_zeroed,
+            init_guess_flat,
+            niter=100,
+            T=1.0,
+            stepsize=0.5,
+            minimizer_kwargs={
+                "method": "L-BFGS-B",
+                "jac": self.get_U_Grad_using_polyfit,
+                "bounds": bounds,
+                "options": {"disp": True},
+            },
+        )
 
-    #     if not result.success:
-    #         print("Minimization failed:", result.message)
-    #         # print(result)
-    #     else:
-    #         print("Minimization successful!")
-    #         print("Final potential energy:", result.fun)
+        if not result.success:
+            print("Minimization failed:", result.message)
+            # print(result)
+        else:
+            print("Minimization successful!")
+            print("Final potential energy:", result.fun)
 
-    #     # return just the minimized positions
-    #     return result.x.reshape((num_ions, 3))
+        # return just the minimized positions
+        return result.x.reshape((num_ions, 3))
 
     # Used
     def find_U_minimum_robust(self, num_ions):
@@ -830,7 +920,7 @@ class U_energy:
         U_test = self.get_U_using_polyfit_dimensionless(init_guess)
         U_min = np.inf
         U_eq = None
-        for i in range(3):
+        for i in range(2):
             U_eqi, U_fini = self.find_U_minimum(num_ions)
             if U_fini < U_min:
                 U_min = U_fini
@@ -838,7 +928,7 @@ class U_energy:
         eq, u = self.find_U_minimum(num_ions, U_eq)
         print(u/U_min)
         return eq
-        return U_eq
+        return U_eq #whats this
 
     # Used
     def find_equilib_positions(self):
@@ -851,6 +941,7 @@ class U_energy:
                 num_ions
             )
 
+    # huh?
     def check_grad(self):
         ionpos_flat = np.array(
             constants.ion_locations_intial_guess[5]

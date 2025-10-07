@@ -1,5 +1,5 @@
 """
-This file will contain the main base of the class simulation
+This file will contain the main base of the simulation class
 """
 
 import math
@@ -30,6 +30,9 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
     def __init__(self, dataset, variables=evars.Electrode_vars()):
         """
         Initialize the simulation object by making sure the data is all extracted and finding total voltages if given electodes
+        
+        dataset: the string of the desired data folder
+        varaibles: and instance of the Electrode_vars class containing the desired electrode variables
         """
         timesimstart = time.time()
         print("initializing simulation")
@@ -40,6 +43,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         self.total_voltage_df = None
 
+        # get the dataframe if it exists, otherwise make it
         if os.path.exists(self.file_path + "combined_dataframe.csv"):
             self.total_voltage_df = pd.read_pickle(
                 self.file_path + "combined_dataframe.csv"
@@ -51,15 +55,20 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
                 self.file_path
             )
 
+        # get the total voltage at each point based on the electrode variables
         self.update_total_voltage()
 
+        # vestigial i think???? cause its turned into {} on line 68
         self.ion_equilibrium_positions = {
             i: tuple([[np.inf, np.inf, np.inf] for _ in range(i)])
             for i in range(1, constants.max_ion_in_chain + 1)
         }
 
+        # init other variables
         self.center_fit = None  # Placeholder for the center fit model
         self.ion_equilibrium_positions = {}
+        self.ion_eigenvectors = {}
+        self.ion_eigenvalues = {}
 
         timesimstop = time.time()
         print(
@@ -67,12 +76,19 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         )
 
     def get_elec_variables(self, electrode):
+        '''
+        Returns the electrode variables used by this simulation for a given electrode.
+        '''
         return self.electrode_vars.get_vars(electrode)
 
     def update_total_voltage(self):
         """Update the total voltage DataFrame by forming
         an equation based on the electorde_varaibles and
-        applying to the column "TotalV" in the dataframe."""
+        applying to the column "TotalV" in the dataframe.
+        
+        yes this implementation seems jank but its quick
+        again this is place where errors will happen if the geometry evolves
+        """
 
         evaluation_final = ""
         eval_ex_str = ""
@@ -93,24 +109,27 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             "DC10",
         ]:
             evaluation_final += (
-                electro + "_V * " + str(self.electrode_vars.get_offset(electro)) + " + "
+                electro
+                + "_V * "
+                + str(self.electrode_vars.get_DCoffset(electro))
+                + " + "
             )
             eval_ex_str += (
                 electro
                 + "_Ex * "
-                + str(self.electrode_vars.get_amplitude(electro))
+                + str(self.electrode_vars.get_RFamplitude(electro))
                 + " + "
             )
             eval_ey_str += (
                 electro
                 + "_Ey * "
-                + str(self.electrode_vars.get_amplitude(electro))
+                + str(self.electrode_vars.get_RFamplitude(electro))
                 + " + "
             )
             eval_ez_str += (
                 electro
                 + "_Ez * "
-                + str(self.electrode_vars.get_amplitude(electro))
+                + str(self.electrode_vars.get_RFamplitude(electro))
                 + " + "
             )
         eval_ex_str = eval_ex_str[:-3]  # remove last " + "
@@ -129,7 +148,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             + ")**2) / (4 * "
             + str(constants.ion_mass)
             + " * "
-            + str(self.electrode_vars.get_frequency("RF1") ** 2)
+            + str(self.electrode_vars.get_RFfrequency("RF1") ** 2)
             + "))"
         )
 
@@ -203,17 +222,23 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
     def find_V_min(self, step_size=5):
         """
         Finds and returns the point with the minimum total voltage.
+        
         To catch errors, the minimum 100 points are found. If they are all close to each other, then the minimum is found.
         If there are outliers, they are thrown out, then the minimum is found.
+        then the points around this min are fit to a quadratic to find the best fit min
+        
         step_size is used to determine the cutout size for the R3 fit around the minimum point.
 
         args:
             step_size (float): The step size(in microns) to use for the cutout around the minimum point. Default is 5 microns.
             Note if step size is too small an error will be thrown (must be over 5)
+            
+        returns:
+            the best fit minimum point (x,y,z) in meters and the dataframe minimum
         """
 
         if step_size <= 4.9:
-            raise ValueError("Step size must be greater than 0.")
+            raise ValueError("Step size must be greater than 5.")
 
         step_size = step_size * 1e-6  # Convert microns to meters for calculations
 
@@ -322,8 +347,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         # print("min_point: ", min_point)
         return best_fit_minimum, min_point
 
-    # In Progress
-    def find_V_trap_at_point_fast(self, x, y, z, starting_step=0.49):
+    def find_V_trap_at_point_fast_and_dirty(self, x, y, z, starting_step=0.49):
         """
         Finds and returns the potential of the trap at a given point (x,y,z).
         The function takes in the coordinates of the desired point in space and returns the potential (V).
@@ -363,7 +387,6 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         return avg_V
 
-    # In Progress
     def find_V_trap_at_point(self, x, y, z, starting_step=0.4, derivs=False):
         """
         Finds and returns the potential of the trap at a given point (x,y,z).
@@ -436,11 +459,11 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         return Vvalue_at_point[0]
         # Calculate the potential energy of the ions
 
-    # In Progress
+    # Not writen
     def get_ion_mins(self):
         return
 
-    # In Progress
+    # Unknown (old?)
     def get_U_min(self, number_of_ions: int):
         """
         Minimizes the total potential energy (trap potential + Coulomb)
@@ -536,7 +559,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         # return just the minimized positions
         return result.x.reshape((number_of_ions, 3))
 
-    # In Progress
+    # Unknown (old?)
     def get_U_min_new(self, number_of_ions: int):
         """
         Minimizes the total potential energy (trap + Coulomb) for 'number_of_ions' ions
@@ -546,7 +569,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         3) basinhopping for global search, with L-BFGS-B for local minimization.
         """
 
-        # ---------------------------------------------------
+        # --
         # 1. Choose a rescaling factor for y, z
         #    This helps the optimizer handle extremely stiff Y/Z directions.
         scale_yz = 1e-1
@@ -727,6 +750,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         return best_positions
 
+    # Unknown (old?)
     def get_smooth_Ufunc_and_UjaxFunc(self, number_of_ions: int, elec_v_model=None):
         """ """
         if elec_v_model is None:
@@ -759,15 +783,17 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         return U_func
 
+    # Unknown (old?)
     def get_U_min_using_polyfit(self, number_of_ions: int):
         """
         This fucnction will minimize the total_U fucntion returned by polu
         """
         pass
 
+    # Important
     def get_voltage_poly_at_center(
         self, lookaround_x=20, lookaround_yz=5, polyfit=4, max_pnts=1e6
-    ): 
+    ):
         return self.get_voltage_poly_at_region(
             x_low=-lookaround_x,
             x_high=lookaround_x,
@@ -779,6 +805,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             polyfit=polyfit,
         )
 
+    # Important
     def get_voltage_poly_at_region(
         self,
         x_low=-10,
@@ -817,11 +844,16 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         # find and print out the r2 of the fit
         r2 = model.score(X_poly, voltage_vals)
-        print("R-squared of the fit:", r2)
+        if r2 < 0.999:
+            print(
+                "Warning: Low R-squared value for polynomial fit done by get_voltage_poly_at_region"
+            )
+            print("R-squared of the fit:", r2)
 
         # return the polynomial
         return model, poly, r2
 
+    # Single Ion Analysis
     def get_principal_freq_at_min(
         self, getall=False, fitdeg=4, look_around=5, return_coefs=False
     ):
@@ -883,51 +915,64 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         return eigenfreq, eigendir_readable
 
 
-print("hi")
-test_sim = Simulation(
-    "Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -.275, 5)
-)
-test_sim.evaluate_center_poly(0,0,0)
-print("starting")
-t1 = time.time()
-test_sim.find_equilib_positions()
-res = test_sim.ion_equilibrium_positions
-print("stoping")
+# print("hi")
+# t1 = time.time()
 
-for num_ions in range(1, constants.max_ion_in_chain + 1):
-    # Get equilibrium positions
-
-    # Get Hessian, 3rd, and 4th tensors
-    hessian = test_sim.get_eq_U_hessian(num_ions)
-    third_tensor = test_sim.get_eq_3rd_der_tensor(num_ions)
-    fourth_tensor = test_sim.get_eq_4th_der_tensor(num_ions)
-
-    # Print the results
-    print(f"Number of ions: {num_ions}")
-t2= time.time()
-
-eigenval, eigenvec = test_sim.get_mode_eigenvec_and_val(6)
-print(test_sim.get_principal_freq_at_min())
-for val in eigenval:
-    print(math.sqrt(val/constants.ion_mass)/(2*math.pi))
-# for key in res:
-#     print(key)
-#     print(res[key])
-
-
-# print(
-#     test_sim.get_U_using_polyfit_dimensionless(
-#         np.array([[-1e-6,0,0],[1e-6,0,0]]).flatten()
-#     )
+# evaribs = evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 5)
+# evaribs.set_frequency("DC3", 80_000)
+# test_sim = Simulation(
+#     "Simp58_101", evaribs
 # )
-# print(
-#     test_sim.get_U_using_polyfit_dimensionless(
-#         np.array([[-2e-6, 0, 0], [2e-6, 0, 0]]).flatten()
-#     )
-# )
-# print(
-#     test_sim.get_U_using_polyfit_dimensionless(
-#         np.array([[-4e-6, 0, 0], [4e-6, 0, 0]]).flatten()
-#     )
-# )
-print("Time taken: ", t2 - t1)
+# test_sim.evaluate_center_poly(0, 0, 0)
+# test_sim.find_equilib_positions()
+# res = test_sim.ion_equilibrium_positions
+
+# for num_ions in range(1, constants.max_ion_in_chain + 1):
+#     # Get equilibrium positions
+
+#     # Get Hessian, 3rd, and 4th tensors
+#     hessian = test_sim.get_eq_U_hessian(num_ions)
+#     third_tensor = test_sim.get_eq_3rd_der_tensor(num_ions)
+#     fourth_tensor = test_sim.get_eq_4th_der_tensor(num_ions)
+
+#     # Print the results
+#     print(f"Number of ions: {num_ions}")
+
+# for num_ions in range(1, constants.max_ion_in_chain + 1):
+#     test_sim.get_mode_eigenvec_and_val(num_ions)
+
+# eigenval, eigenvec = test_sim.get_mode_eigenvec_and_val(1)
+# print(test_sim.get_principal_freq_at_min())
+# for val in eigenval:
+#     print(val)
+#     print(math.sqrt(val / constants.ion_mass) / (2 * math.pi))
+# # print(test_sim.ion_eigenvectors)
+# for i in range(1,1+1):
+#     test_sim.get_3_wise_mode_couplings(i)
+#     test_sim.get_4_wise_mode_couplings(i)
+
+
+# print(test_sim.get_2_wise_mode_couplings(1))
+# t2 = time.time()
+
+# # for key in res:
+# #     print(key)
+# #     print(res[key])
+
+
+# # print(
+# #     test_sim.get_U_using_polyfit_dimensionless(
+# #         np.array([[-1e-6,0,0],[1e-6,0,0]]).flatten()
+# #     )
+# # )
+# # print(
+# #     test_sim.get_U_using_polyfit_dimensionless(
+# #         np.array([[-2e-6, 0, 0], [2e-6, 0, 0]]).flatten()
+# #     )
+# # )
+# # print(
+# #     test_sim.get_U_using_polyfit_dimensionless(
+# #         np.array([[-4e-6, 0, 0], [4e-6, 0, 0]]).flatten()
+# #     )
+# # )
+# print("Time taken: ", t2 - t1)

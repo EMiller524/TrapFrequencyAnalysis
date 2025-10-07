@@ -1,64 +1,149 @@
 """
 Run code here
 """
+print("Running main.py")
+# Goal for single frequency analysis, given:
+# - elec variables with the rf blades having the only nonzero (and equal) modualtion
+# - a certain number of ions (n)
+# - global params such as trap design, mass, charge, trap capacitence etc
+# Return:
+# - the ions equilibrium position in the trap (using pseudopotential aproximation)
+# - the 3n modes, their eigen vectors and value (then get freq)
+# - and their 2nd, 3rd, and 4th degree mixing (all be zero but want infustrcuture)
+# - time for each step
+
+
+# up next:
+# reread this project and make nice coments and going, label every funtion as one of (working, in progress, vestigial)
+# MAKE A SIMPLE FRONTEND FOR THIS, just an app that opens up asks for number ions and elec variables and which geometry then returns eq pos and freq.
+
+
+# Next step after finalized version here: Analysis in the floquet picture with completely generalized elec vars
+# Nessecary questions:
+# - How to find the eq position with many frequencys?
+# - What is the desired statemenmt about state, do we still want a static eigenvetor per mode?
+# - Wont we be foreced to receive a time dependent eigen vector? Which we then time average the innerproduct of two to get the "mixing"
+
 
 import math
 import time
 from matplotlib import pyplot as plt
+import numpy as np
 from simulation import Simulation
 import experiment_funcs
 import electrode_vars as evars
 import constants
 
-print("hi")
-test_sim = Simulation(
-    "Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 5)
-)
-# print(test_sim.get_principal_freq_at_min())
+print("Imports done")
+# general setup
+# simulation_test = Simulation("Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 5))
 
+# # force init a poly fit at the center
+# simulation_test.evaluate_center_poly(0, 0, 0)
+
+# # find the eq positions for up to 10 ions (10 is a global constant)
+# simulation_test.find_equilib_positions()
+
+
+print("hi")
+time1 = time.time()
+test_sim = Simulation(
+    "Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 5)
+)
+newparams = evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 5)
+newparams.set_DCoffset("DC1", 5 )
+newparams.set_DCoffset("DC2", 0)
+newparams.set_DCoffset("DC3", 0)
+newparams.set_DCoffset("DC4", 0)
+newparams.set_DCoffset("DC5", 5 + 0)
+
+newparams.set_DCoffset("DC6", 5 + 0 )
+newparams.set_DCoffset("DC7", 0)
+newparams.set_DCoffset("DC8", 0)
+newparams.set_DCoffset("DC9", 0)
+newparams.set_DCoffset("DC10", 5 + 0)
+# newparams.set_DCoffset("DC8", 5)
+test_sim.change_electrode_variables(newparams)
+
+
+# print(test_sim.get_principal_freq_at_min())
+time2 = time.time()
 test_sim.evaluate_center_poly(0, 0, 0)
 print("starting")
+time3 = time.time()
 test_sim.find_equilib_positions()
 res = test_sim.ion_equilibrium_positions
+print("Equilibrium positions: ", res)
 print("stoping")
 
+time4 = time.time() 
+hessian = test_sim.get_eq_U_hessian(5)
+third_tensor = test_sim.get_eq_3rd_der_tensor(5)
+fourth_tensor = test_sim.get_eq_4th_der_tensor(5)
+test_sim.get_mode_eigenvec_and_val(5)
 
-for num_ions in range(10, 10 + 1):
-    # Get equilibrium positions
+time5 = time.time()
+three_wise_coupolings = test_sim.get_3_wise_mode_couplings(5)
+vals = np.array(list(three_wise_coupolings.values()), dtype=float)
+max_coupling = float(np.max(np.abs(vals)))  # maximum absolute value
+print("Max coupling: ", max_coupling)
+# print(three_wise_coupolings)
+time6 = time.time()
+print("Time taken: ", time2 - time1, time3 - time2, time4 - time3, time5 - time4, time6 - time5)
+print("Total time: ", time6 - time1 )
+# for num_ions in range(5, 5 + 1):
+#     # Get equilibrium positions
 
-    # Get Hessian, 3rd, and 4th tensors
-    hessian = test_sim.get_eq_U_hessian(num_ions)
-    third_tensor = test_sim.get_eq_3rd_der_tensor(num_ions)
-    t1 = time.time()
-    fourth_tensor = test_sim.get_eq_U_fourth_derivative_tensor_numba(
-        num_ions, constants.ion_charge, constants.coulomb_constant
-    )
+#     # Get Hessian, 3rd, and 4th tensors
+#     hessian = test_sim.get_eq_U_hessian(num_ions)
+#     third_tensor = test_sim.get_eq_3rd_der_tensor(num_ions)
+#     fourth_tensor = test_sim.get_eq_4th_der_tensor(num_ions)
+#     t1 = time.time()
+#     test_sim.get_mode_eigenvec_and_val(num_ions)
+#     three_wise_coupolings = test_sim.get_3_wise_mode_couplings(num_ions)
+#     # take the average with std of all the coupling values
+#     # Convert dict values (0-D arrays) -> 1-D float array
+#     vals = np.array(list(three_wise_coupolings.values()), dtype=float)
 
-    # Print the results
-    print(f"Number of ions: {num_ions}")
+#     # If you want magnitudes, uncomment:
+#     # vals = np.abs(vals)
 
-# for key in res:
-#     print(key)
-#     print(res[key])
+#     avg_coupling = float(vals.mean())  # population mean
+#     std_coupling = float(vals.std(ddof=0))  # population std (use ddof=1 for sample std)
+#     max_coupling = float(np.max(np.abs(vals)))  # maximum absolute value
 
+#     # Calculate the average of the top 10 values
+#     top_10_avg = float(np.mean(np.partition(vals, -10)[-10:]))
 
-# print(
-#     test_sim.get_U_using_polyfit_dimensionless(
-#         np.array([[-1e-6,0,0],[1e-6,0,0]]).flatten()
+#     print(
+#         f"num_ions={num_ions}  n={vals.size}  mean={avg_coupling:.6e}  std={std_coupling:.6e}  max={max_coupling:.6e}  top_10_avg={top_10_avg:.6e}"
 #     )
-# )
-# print(
-#     test_sim.get_U_using_polyfit_dimensionless(
-#         np.array([[-2e-6, 0, 0], [2e-6, 0, 0]]).flatten()
-#     )
-# )
-# print(
-#     test_sim.get_U_using_polyfit_dimensionless(
-#         np.array([[-4e-6, 0, 0], [4e-6, 0, 0]]).flatten()
-#     )
-# )
-t2 = time.time()
-print("Time taken: ", t2 - t1)
+
+#     # Print the results
+#     print(f"Number of ions: {num_ions}")
+
+# # for key in res:
+# #     print(key)
+# #     print(res[key])
+
+
+# # print(
+# #     test_sim.get_U_using_polyfit_dimensionless(
+# #         np.array([[-1e-6,0,0],[1e-6,0,0]]).flatten()
+# #     )
+# # )
+# # print(
+# #     test_sim.get_U_using_polyfit_dimensionless(
+# #         np.array([[-2e-6, 0, 0], [2e-6, 0, 0]]).flatten()
+# #     )
+# # )
+# # print(
+# #     test_sim.get_U_using_polyfit_dimensionless(
+# #         np.array([[-4e-6, 0, 0], [4e-6, 0, 0]]).flatten()
+# #     )
+# # )
+# t2 = time.time()
+# print("Time taken: ", t2 - t1)
 
 
 # tstart = time.time()
