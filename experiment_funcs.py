@@ -6,7 +6,7 @@ import math
 
 import numpy as np
 from simulation import Simulation
-import electrode_vars as evars
+import electrode_vars_old as evars
 import matplotlib.pyplot as plt
 import constants
 

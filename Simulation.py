@@ -20,7 +20,7 @@ from multiprocessing import Pool, cpu_count
 from joblib import Parallel, delayed
 from scipy.interpolate import griddata
 import numexpr as ne
-import electrode_vars as evars
+import electrode_vars_old as evars
 from scipy.optimize import minimize, BFGS, basinhopping
 from scipy.optimize import differential_evolution
 from scipy.interpolate import RBFInterpolator

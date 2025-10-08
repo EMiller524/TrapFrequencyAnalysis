@@ -44,6 +44,7 @@ electrode_names = (
 )
 
 
+#TODO: The values should be applied differently, the current implemetation is flawed af
 trap_capcitence_per_electrode_PF = {
     "DC1": 0.155,
     "DC2": 0.068,

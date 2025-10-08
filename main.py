@@ -31,7 +31,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from simulation import Simulation
 import experiment_funcs
-import electrode_vars as evars
+import electrode_vars_old as evars
 import constants
 
 print("Imports done")

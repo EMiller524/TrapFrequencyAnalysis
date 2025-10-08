@@ -15,7 +15,7 @@ import datetime
 import time
 import csv
 import constants
-import electrode_vars as evars
+import electrode_vars_old as evars
 
 
 def extract_raw_trap_sim_data(file_path):
