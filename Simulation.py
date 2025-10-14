@@ -20,17 +20,18 @@ from multiprocessing import Pool, cpu_count
 from joblib import Parallel, delayed
 from scipy.interpolate import griddata
 import numexpr as ne
-import electrode_vars_old as evars
+from trapping_variables import Trapping_Vars, DriveKey
 from scipy.optimize import minimize, BFGS, basinhopping
 from scipy.optimize import differential_evolution
 from scipy.interpolate import RBFInterpolator
+from trapping_variables import Trapping_Vars, DriveKey, drive_colname
 
 
 class Simulation(sim_ploting, sim_normalfitting, U_energy):
-    def __init__(self, dataset, variables=evars.Electrode_vars()):
+    def __init__(self, dataset, trapVars=Trapping_Vars()):
         """
         Initialize the simulation object by making sure the data is all extracted and finding total voltages if given electodes
-        
+
         dataset: the string of the desired data folder
         varaibles: and instance of the Electrode_vars class containing the desired electrode variables
         """
@@ -39,7 +40,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         self.dataset = dataset
         self.file_path = "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\"
 
-        self.electrode_vars = variables
+        self.trapVariables = trapVars
 
         self.total_voltage_df = None
 
@@ -56,16 +57,16 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             )
 
         # get the total voltage at each point based on the electrode variables
-        self.update_total_voltage()
+        self.update_total_voltage_columns()
 
-        # vestigial i think???? cause its turned into {} on line 68
-        self.ion_equilibrium_positions = {
-            i: tuple([[np.inf, np.inf, np.inf] for _ in range(i)])
-            for i in range(1, constants.max_ion_in_chain + 1)
-        }
+        # vestigial i think???? cause its turned into {} on line 68 keeping for now
+        # self.ion_equilibrium_positions = {
+        #     i: tuple([[np.inf, np.inf, np.inf] for _ in range(i)])
+        #     for i in range(1, constants.max_ion_in_chain + 1)
+        # }
 
         # init other variables
-        self.center_fit = None  # Placeholder for the center fit model
+        self.center_fits = {}  # Placeholder for the center fit model
         self.ion_equilibrium_positions = {}
         self.ion_eigenvectors = {}
         self.ion_eigenvalues = {}
@@ -75,20 +76,113 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             "simulation initialized in " + str(timesimstop - timesimstart) + " seconds"
         )
 
-    def get_elec_variables(self, electrode):
-        '''
+    def get_trapping_variables(self, electrode):
+        """
         Returns the electrode variables used by this simulation for a given electrode.
-        '''
-        return self.electrode_vars.get_vars(electrode)
+        """
+        return self.trapVariables
 
-    def update_total_voltage(self):
+    def update_total_voltage_columns(self):
+        """
+        Build total-voltage columns:
+        - 'Static_TotalV' = DC scalar potential + pseudopotential from the fastest non-DC drive
+        - '<drive>_TotalV' for each non-DC drive = scalar potential from that drive only
+        Uses effective amplitudes (base + pickoff) from Trapping_Vars.
+        """
+        tv = self.trapVariables
+        df = self.total_voltage_df
+        electrodes = list(constants.electrode_names)
+
+        # expose all dataframe columns to numexpr
+        local_dict = {col: df[col] for col in df.columns}
+
+        # ---------- DC: scalar term ----------
+        dc_map = tv.get_drive_amplitudes(tv.dc_key)  # {electrode: volts}
+        v_dc_terms = []
+        for el in electrodes:
+            col_v = f"{el}_V"
+            if col_v in df.columns:
+                v_dc_terms.append(f"{col_v} * {dc_map.get(el, 0.0)}")
+        sum_v_dc = " + ".join(v_dc_terms) or "0"
+
+        # ---------- choose fastest non-DC for pseudopotential ----------
+        non_dc_drives = [dk for dk in tv.get_drives() if dk.f_uHz != 0]
+        fastest = max(non_dc_drives, key=lambda dk: dk.f_uHz, default=None)
+
+        pseudo_expr = "0"
+        if fastest is not None:
+            rf_map = tv.get_drive_amplitudes(fastest)  # {electrode: volts}
+            ex_terms, ey_terms, ez_terms = [], [], []
+            for el in electrodes:
+                A_e = rf_map.get(el, 0.0)
+                if A_e == 0.0:
+                    continue  # shrink the expression if this electrode doesn't contribute
+                col_ex = f"{el}_Ex"
+                col_ey = f"{el}_Ey"
+                col_ez = f"{el}_Ez"
+                if col_ex in df.columns:
+                    ex_terms.append(f"{col_ex} * {A_e}")
+                if col_ey in df.columns:
+                    ey_terms.append(f"{col_ey} * {A_e}")
+                if col_ez in df.columns:
+                    ez_terms.append(f"{col_ez} * {A_e}")
+
+            sum_ex = " + ".join(ex_terms) or "0"
+            sum_ey = " + ".join(ey_terms) or "0"
+            sum_ez = " + ".join(ez_terms) or "0"
+
+            Omega2 = (2.0 * math.pi * fastest.f_hz) ** 2
+            alpha = constants.ion_charge / (
+                4.0 * constants.ion_mass * Omega2
+            )  # volts per (V/m)^2
+
+            pseudo_expr = f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+
+        # final DC + pseudo
+        df["Static_TotalV"] = ne.evaluate(
+            f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict
+        )
+
+        # ---------- per-drive totals (scalar only, no pseudo) ----------
+
+        for dk in non_dc_drives:
+            amp_map = tv.get_drive_amplitudes(dk)  # {electrode: volts}
+            v_terms = []
+            for el in electrodes:
+                col_v = f"{el}_V"
+                if col_v in df.columns:
+                    coef = amp_map.get(el, 0.0)
+                    if coef != 0.0:
+                        v_terms.append(f"{col_v} * {coef}")
+            expr = " + ".join(v_terms) or "0"
+            df[drive_colname(dk)] = ne.evaluate(expr, local_dict=local_dict)
+
+        # done
+        return
+
+    def update_total_voltage_OLD(self):
         """Update the total voltage DataFrame by forming
         an equation based on the electorde_varaibles and
         applying to the column "TotalV" in the dataframe.
-        
+
         yes this implementation seems jank but its quick
         again this is place where errors will happen if the geometry evolves
+
+        this is where the pseudopotential is applied.
+        NOTE for now this is only taking into account the highest frequency modulation in the trappingvars
+        TODO: Make the pseudopotential take into account all the modulations
         """
+
+        drives = self.trapVariables.get_drives()
+        # find the fastest drive and return the drivekey
+        max_freq = 0
+        max_drive = None
+        for drive in drives:
+            if drive.f_hz >= max_freq:
+                max_freq = drive.f_hz
+                max_drive = drive
+        if max_drive is None:
+            raise ValueError("No positive freq drives found in trapping variables.")
 
         evaluation_final = ""
         eval_ex_str = ""
@@ -111,25 +205,25 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             evaluation_final += (
                 electro
                 + "_V * "
-                + str(self.electrode_vars.get_DCoffset(electro))
+                + str(self.trapVariables.get_amp(DriveKey(0, 0, "DC"), electro))
                 + " + "
             )
             eval_ex_str += (
                 electro
                 + "_Ex * "
-                + str(self.electrode_vars.get_RFamplitude(electro))
+                + str(self.trapVariables.get_amp(max_drive, electro))
                 + " + "
             )
             eval_ey_str += (
                 electro
                 + "_Ey * "
-                + str(self.electrode_vars.get_RFamplitude(electro))
+                + str(self.trapVariables.get_amp(max_drive, electro))
                 + " + "
             )
             eval_ez_str += (
                 electro
                 + "_Ez * "
-                + str(self.electrode_vars.get_RFamplitude(electro))
+                + str(self.trapVariables.get_amp(max_drive, electro))
                 + " + "
             )
         eval_ex_str = eval_ex_str[:-3]  # remove last " + "
@@ -148,7 +242,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             + ")**2) / (4 * "
             + str(constants.ion_mass)
             + " * "
-            + str(self.electrode_vars.get_RFfrequency("RF1") ** 2)
+            + str(max_freq**2)
             + "))"
         )
 
@@ -212,27 +306,27 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         return
 
-    def change_electrode_variables(self, new_vars: evars.Electrode_vars):
+    def change_electrode_variables(self, new_vars: Trapping_Vars):
         """
         Change the electrode variables of the simulation to new_vars and update the total voltage DataFrame.
         """
-        self.electrode_vars = new_vars
-        self.update_total_voltage()
+        self.trapVariables = new_vars
+        self.update_total_voltage_columns()
 
     def find_V_min(self, step_size=5):
         """
         Finds and returns the point with the minimum total voltage.
-        
+
         To catch errors, the minimum 100 points are found. If they are all close to each other, then the minimum is found.
         If there are outliers, they are thrown out, then the minimum is found.
         then the points around this min are fit to a quadratic to find the best fit min
-        
+
         step_size is used to determine the cutout size for the R3 fit around the minimum point.
 
         args:
             step_size (float): The step size(in microns) to use for the cutout around the minimum point. Default is 5 microns.
             Note if step size is too small an error will be thrown (must be over 5)
-            
+
         returns:
             the best fit minimum point (x,y,z) in meters and the dataframe minimum
         """
@@ -349,6 +443,8 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
     def find_V_trap_at_point_fast_and_dirty(self, x, y, z, starting_step=0.49):
         """
+        Lol dont use this
+
         Finds and returns the potential of the trap at a given point (x,y,z).
         The function takes in the coordinates of the desired point in space and returns the potential (V).
 
@@ -426,7 +522,7 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
             starting_step += 5 * 1e-6
 
         voltage_vals = cutout_of_df["TotalV"].values
-        print(len(cutout_of_df), " points found in cutout")
+        # print(len(cutout_of_df), " points found in cutout")
         # print("voltage_vals: ", voltage_vals)
         xyz_vals_uncentered = cutout_of_df[["x", "y", "z"]].values
 
@@ -444,25 +540,223 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         # find and print out the r2 of the fit
         r2 = model.score(X_poly, voltage_vals)
-        print("R-squared of the fit:", r2)
+        # print("R-squared of the fit:", r2)
 
         # Get derivatives (d/dx, d/dy, d/dz) at point
         derivatives = model.coef_[1:4]
 
         # find the value of the fit at the origin
         Vvalue_at_point = model.predict(poly.transform([[0, 0, 0]]))
-        print("Time taken to find V at point: ", t2 - t1)
+        # print("Time taken to find V at point: ", t2 - t1)
 
         if derivs:
             # Return the derivatives at the point
-            return derivatives
+            return Vvalue_at_point[0], derivatives
         return Vvalue_at_point[0]
         # Calculate the potential energy of the ions
 
-    # Not writen
-    def get_ion_mins(self):
+    def update_center_polys(self, polyfit_deg=4):
+        drives = self.trapVariables.get_drives()
+        for drive in drives:
+            self.center_fits[drive] = self.get_voltage_poly_for_drive_at_region(
+                drive,
+                region_x_low=-constants.center_region_x_um,
+                region_x_high=constants.center_region_x_um,
+                region_y_low=-constants.center_region_y_um,
+                region_y_high=constants.center_region_y_um,
+                region_z_low=-constants.center_region_z_um,
+                region_z_high=constants.center_region_z_um,
+                polyfit=polyfit_deg,
+            )
         return
 
+    def get_voltage_poly_for_drive_at_region(
+        self,
+        drive: DriveKey,
+        region_x_low=-100,
+        region_x_high=100,
+        region_y_low=-10,
+        region_y_high=10,
+        region_z_low=-10,
+        region_z_high=10,
+        max_pnts=1e6,
+        polyfit=4,
+    ):
+
+        # region cutout (bounds in µm; DF stores meters)
+        df = self.total_voltage_df
+        cutout = df[
+            df["x"].between(region_x_low * 1e-6, region_x_high * 1e-6)
+            & df["y"].between(region_y_low * 1e-6, region_y_high * 1e-6)
+            & df["z"].between(region_z_low * 1e-6, region_z_high * 1e-6)
+        ].copy()
+
+        if drive.f_uHz == 0:
+            column_name = "Static_TotalV"
+        else:
+            column_name = drive_colname(drive)
+
+        if column_name not in cutout.columns:
+            raise KeyError(
+                f"Voltage column '{column_name}' not found. Available: {list(cutout.columns)}"
+            )
+
+        # drop rows with NaNs in inputs/target
+        cutout.dropna(subset=["x", "y", "z", column_name], inplace=True)
+
+        # (optional) cap point count
+        max_pnts_int = int(max_pnts)
+        if len(cutout) > max_pnts_int:
+            cutout = cutout.sample(n=max_pnts_int, random_state=1)
+            print("len(cutout) was cut to:", len(cutout))
+        print("len(cutout):", len(cutout))
+        if len(cutout) == 0:
+            raise ValueError("No points in region after filtering/sampling.")
+
+        # features/target
+        xyz_vals = cutout[["x", "y", "z"]].values
+        voltage_vals = cutout[column_name].values
+
+        poly = PolynomialFeatures(degree=polyfit, include_bias=True)
+        X_poly = poly.fit_transform(xyz_vals)
+
+        model = LinearRegression(fit_intercept=False)  # avoid double bias term
+        model.fit(X_poly, voltage_vals)
+
+        r2 = model.score(X_poly, voltage_vals)
+        if r2 < 0.999:
+            print(
+                "WARNING: Low R-squared for polynomial fit in get_voltage_poly_for_drive_at_region"
+            )
+            print("R-squared:", r2)
+
+        return model, poly, r2
+
+    # Important and old
+    def get_voltage_poly_at_center_old(
+        self, lookaround_x=20, lookaround_yz=5, polyfit=4, max_pnts=1e6
+    ):
+        return self.get_voltage_poly_at_region_old(
+            x_low=-lookaround_x,
+            x_high=lookaround_x,
+            y_low=-lookaround_yz,
+            y_high=lookaround_yz,
+            z_low=-lookaround_yz,
+            z_high=lookaround_yz,
+            max_pnts=max_pnts,
+            polyfit=polyfit,
+        )
+
+    # Important and old
+    def get_voltage_poly_at_region_old(
+        self,
+        x_low=-10,
+        x_high=10,
+        y_low=-10,
+        y_high=10,
+        z_low=-10,
+        z_high=10,
+        max_pnts=1e6,
+        polyfit=4,
+    ):
+
+        # get initial maxcutout
+        cutout_of_df = self.total_voltage_df[
+            (self.total_voltage_df["x"].between((x_low * 1e-6), (x_high * 1e-6)))
+            & (self.total_voltage_df["y"].between(y_low * 1e-6, y_high * 1e-6))
+            & (self.total_voltage_df["z"].between(z_low * 1e-6, z_high * 1e-6))
+        ]
+
+        # if len(cutout_of_df) > max_pnts then randomply sample max_pnts points
+        if len(cutout_of_df) > max_pnts:
+            cutout_of_df = cutout_of_df.sample(n=max_pnts, random_state=1)
+        print("len(cutout_of_df): ", len(cutout_of_df))
+
+        voltage_vals = cutout_of_df["TotalV"].values
+        print(len(cutout_of_df), " points found in cutout")
+        # print("voltage_vals: ", voltage_vals)
+        xyz_vals = cutout_of_df[["x", "y", "z"]].values
+
+        poly = PolynomialFeatures(degree=polyfit, include_bias=True)
+        X_poly = poly.fit_transform(xyz_vals)
+
+        # Fit the model
+        model = LinearRegression()
+        model.fit(X_poly, voltage_vals)
+
+        # find and print out the r2 of the fit
+        r2 = model.score(X_poly, voltage_vals)
+        if r2 < 0.999:
+            print(
+                "Warning: Low R-squared value for polynomial fit done by get_voltage_poly_at_region"
+            )
+            print("R-squared of the fit:", r2)
+
+        # return the polynomial
+        return model, poly, r2
+
+    # Single Ion Analysis Old
+    def get_principal_freq_at_min_old(
+        self, getall=False, fitdeg=4, look_around=5, return_coefs=False
+    ):
+        """
+        This fuction finds the principal frequency at the minimum point of the total voltage.
+        To do so the minimum in the potential well is found and then at this point a R3 fit is performed to find the eigenfrequencies and eigenvectors.
+
+        args:
+            getmintoo (bool): If True, return the minimum points as well. Default is False.
+            fitdeg (int): The degree of the polynomial to fit to the data. Default is 4.
+            look_around (float): The size of the cutout around the minimum point to use for the R3 fit. Default is 5 microns.
+
+        returns:
+            eigenfreq (list): A list of the eigenfrequencies in increasing order.
+            eigendir (dict): A dictionary of the eigenvectors in a readable format.
+            min1 (array): The best fit minimum point (x,y,z) in meters.
+            min2 (array): The original minimum point (x,y,z) in meters.
+        """
+        min1, min2 = self.find_V_min()
+        if return_coefs or getall:
+            eigenfreq, axialfreq, eigendir, coefs = self.get_freqs_at_point_withR3_fit(
+                min1[0],
+                min1[1],
+                min1[2],
+                look_around=look_around,
+                polyfit=fitdeg,
+                return_coefs=True,
+            )
+        else:
+            eigenfreq, axialfreq, eigendir = self.get_freqs_at_point_withR3_fit(
+                min1[0],
+                min1[1],
+                min1[2],
+                look_around=look_around,
+                polyfit=fitdeg,
+                return_coefs=False,
+            )
+
+        # Convert eigenfreq to a numpy array for sorting
+        eigenfreq = np.array(eigenfreq)
+
+        # Sort eigenfreq in increasing order and eigendir accordingly
+        sorted_indices = np.argsort(eigenfreq)
+        eigenfreq = eigenfreq[sorted_indices].tolist()  # Convert back to list if needed
+        eigendir = eigendir[
+            :, sorted_indices
+        ]  # Sort eigendir columns based on sorted indices
+
+        # Convert eigenvectors into a readable format
+        eigendir_readable = {
+            f"Direction {i+1}": f"({vec[0]:.3f}, {vec[1]:.3f}, {vec[2]:.3f})"
+            for i, vec in enumerate(
+                eigendir.T
+            )  # Transpose so each column is an eigenvector
+        }
+        if getall:
+            return eigenfreq, eigendir_readable, min1, min2, coefs
+
+        return eigenfreq, eigendir_readable
+
+    # * * * * * * * * * * * ** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *#
     # Unknown (old?)
     def get_U_min(self, number_of_ions: int):
         """
@@ -754,7 +1048,9 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
     def get_smooth_Ufunc_and_UjaxFunc(self, number_of_ions: int, elec_v_model=None):
         """ """
         if elec_v_model is None:
-            elec_v_model = self.get_voltage_poly_at_center(polyfit=4, max_pnts=1e6)[0]
+            elec_v_model = self.get_voltage_poly_at_center_old(polyfit=4, max_pnts=1e6)[
+                0
+            ]
 
         def U_func(positions_flat):
             n = len(positions_flat) // 3
@@ -790,129 +1086,11 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         """
         pass
 
-    # Important
-    def get_voltage_poly_at_center(
-        self, lookaround_x=20, lookaround_yz=5, polyfit=4, max_pnts=1e6
-    ):
-        return self.get_voltage_poly_at_region(
-            x_low=-lookaround_x,
-            x_high=lookaround_x,
-            y_low=-lookaround_yz,
-            y_high=lookaround_yz,
-            z_low=-lookaround_yz,
-            z_high=lookaround_yz,
-            max_pnts=max_pnts,
-            polyfit=polyfit,
-        )
+    # * * * * * * * * * * * ** * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *#
 
-    # Important
-    def get_voltage_poly_at_region(
-        self,
-        x_low=-10,
-        x_high=10,
-        y_low=-10,
-        y_high=10,
-        z_low=-10,
-        z_high=10,
-        max_pnts=1e6,
-        polyfit=4,
-    ):
-
-        # get initial maxcutout
-        cutout_of_df = self.total_voltage_df[
-            (self.total_voltage_df["x"].between((x_low * 1e-6), (x_high * 1e-6)))
-            & (self.total_voltage_df["y"].between(y_low * 1e-6, y_high * 1e-6))
-            & (self.total_voltage_df["z"].between(z_low * 1e-6, z_high * 1e-6))
-        ]
-
-        # if len(cutout_of_df) > max_pnts then randomply sample max_pnts points
-        if len(cutout_of_df) > max_pnts:
-            cutout_of_df = cutout_of_df.sample(n=max_pnts, random_state=1)
-        print("len(cutout_of_df): ", len(cutout_of_df))
-
-        voltage_vals = cutout_of_df["TotalV"].values
-        print(len(cutout_of_df), " points found in cutout")
-        # print("voltage_vals: ", voltage_vals)
-        xyz_vals = cutout_of_df[["x", "y", "z"]].values
-
-        poly = PolynomialFeatures(degree=polyfit, include_bias=True)
-        X_poly = poly.fit_transform(xyz_vals)
-
-        # Fit the model
-        model = LinearRegression()
-        model.fit(X_poly, voltage_vals)
-
-        # find and print out the r2 of the fit
-        r2 = model.score(X_poly, voltage_vals)
-        if r2 < 0.999:
-            print(
-                "Warning: Low R-squared value for polynomial fit done by get_voltage_poly_at_region"
-            )
-            print("R-squared of the fit:", r2)
-
-        # return the polynomial
-        return model, poly, r2
-
-    # Single Ion Analysis
-    def get_principal_freq_at_min(
-        self, getall=False, fitdeg=4, look_around=5, return_coefs=False
-    ):
-        """
-        This fuction finds the principal frequency at the minimum point of the total voltage.
-        To do so the minimum in the potential well is found and then at this point a R3 fit is performed to find the eigenfrequencies and eigenvectors.
-
-        args:
-            getmintoo (bool): If True, return the minimum points as well. Default is False.
-            fitdeg (int): The degree of the polynomial to fit to the data. Default is 4.
-            look_around (float): The size of the cutout around the minimum point to use for the R3 fit. Default is 5 microns.
-
-        returns:
-            eigenfreq (list): A list of the eigenfrequencies in increasing order.
-            eigendir (dict): A dictionary of the eigenvectors in a readable format.
-            min1 (array): The best fit minimum point (x,y,z) in meters.
-            min2 (array): The original minimum point (x,y,z) in meters.
-        """
-        min1, min2 = self.find_V_min()
-        if return_coefs or getall:
-            eigenfreq, axialfreq, eigendir, coefs = self.get_freqs_at_point_withR3_fit(
-                min1[0],
-                min1[1],
-                min1[2],
-                look_around=look_around,
-                polyfit=fitdeg,
-                return_coefs=True,
-            )
-        else:
-            eigenfreq, axialfreq, eigendir = self.get_freqs_at_point_withR3_fit(
-                min1[0],
-                min1[1],
-                min1[2],
-                look_around=look_around,
-                polyfit=fitdeg,
-                return_coefs=False,
-            )
-
-        # Convert eigenfreq to a numpy array for sorting
-        eigenfreq = np.array(eigenfreq)
-
-        # Sort eigenfreq in increasing order and eigendir accordingly
-        sorted_indices = np.argsort(eigenfreq)
-        eigenfreq = eigenfreq[sorted_indices].tolist()  # Convert back to list if needed
-        eigendir = eigendir[
-            :, sorted_indices
-        ]  # Sort eigendir columns based on sorted indices
-
-        # Convert eigenvectors into a readable format
-        eigendir_readable = {
-            f"Direction {i+1}": f"({vec[0]:.3f}, {vec[1]:.3f}, {vec[2]:.3f})"
-            for i, vec in enumerate(
-                eigendir.T
-            )  # Transpose so each column is an eigenvector
-        }
-        if getall:
-            return eigenfreq, eigendir_readable, min1, min2, coefs
-
-        return eigenfreq, eigendir_readable
+    # Not writen
+    def get_ion_mins(self):
+        return
 
 
 # print("hi")

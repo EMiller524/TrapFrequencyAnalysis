@@ -43,8 +43,16 @@ electrode_names = (
     "RF2",
 )
 
+center_region_x_um = 100 # microns
+center_region_y_um = 10 # microns
+center_region_z_um = center_region_y_um
 
-#TODO: The values should be applied differently, the current implemetation is flawed af
+
+#TODO: The values should be applied differently, the current implemetation is flawed
+# What should happen is that each pairwise combination of electodes has a capacitance and then
+# that should be used to calculate the pickoff multiplier
+# what we have right now is the RF to [blank] pickoffs
+# ideally we have a 12 by 12 matrix of capacitances (Should be symmetric)
 trap_capcitence_per_electrode_PF = {
     "DC1": 0.155,
     "DC2": 0.068,

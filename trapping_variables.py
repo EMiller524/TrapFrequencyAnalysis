@@ -11,6 +11,15 @@ import constants  # assumes constants.electrode_names exists
 from dataclasses import dataclass, field
 
 
+def _sanitize_label(label: str) -> str:
+    return label.replace(" ", "_").replace("/", "_")
+
+
+def drive_colname(dk: DriveKey) -> str:
+    base = "Static" if dk.f_uHz == 0 else _sanitize_label(dk.label)
+    return f"{base}_TotalV"
+
+
 MICRO = 1_000_000
 
 # ---------- Keys --------------------------------------------------------------
@@ -23,12 +32,14 @@ class DriveKey:
     f_uHz: int
     phi_uRad: int
     # Don't let 'label' affect equality/hash unless you really want it to.
-    label: Optional[str] = field(default=None, compare=False)
+    label: str = field(compare=False)
 
     @staticmethod
-    def from_float(f_hz: float, phi_rad: float, label: str | None = None) -> "DriveKey":
+    def from_float(f_hz: float, phi_rad: float, label: str) -> "DriveKey":
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError("DriveKey label must be a non-empty string.")
         phi = ((phi_rad + math.pi) % (2 * math.pi)) - math.pi
-        return DriveKey(round(f_hz * MICRO), round(phi * MICRO), label)
+        return DriveKey(round(f_hz * MICRO), round(phi * MICRO), label.strip())
 
     @property
     def f_hz(self) -> float:
@@ -100,8 +111,10 @@ class Trapping_Vars:
     def __init__(self):
         self.electrodes = list(constants.electrode_names)
         self.Var_dict: dict[DriveKey, Electrode_Amplitudes] = {}
+        self.by_label: dict[str, DriveKey] = {}
         self.dc_key = DriveKey.from_float(0.0, 0.0, label="DC")
         self.Var_dict[self.dc_key] = Electrode_Amplitudes()
+        self.by_label["DC"] = self.dc_key
 
     # --- Internal helpers -----------------------------------------------------
 
@@ -135,15 +148,36 @@ class Trapping_Vars:
         phase: float,
         amplitudes: Electrode_Amplitudes | dict[str, float],
     ) -> DriveKey:
+        label = label.strip()
+        if not label:
+            raise ValueError("Drive label must be a non-empty string.")
+        if label in self.by_label:
+            raise ValueError(f"Duplicate drive label '{label}'.")
+
         dk = DriveKey.from_float(freq, phase, label)
+
+        # guard same (f,phi) already present under a different label
+        if dk in self.Var_dict:
+            # find the existing key equal in (f,phi)
+            for existing_dk in self.Var_dict.keys():
+                if existing_dk == dk:
+                    if existing_dk.label != label:
+                        raise ValueError(
+                            f"A drive at f={dk.f_hz} Hz, phi={dk.phi} rad already exists as '{existing_dk.label}'."
+                        )
+                    break  # same label, falls through (shouldn’t happen since label is new)
+
+        # normalize amplitudes in
         if isinstance(amplitudes, dict):
             ea = Electrode_Amplitudes()
             for el, A in amplitudes.items():
                 ea.set_amplitude_volt(el, A)
         else:
             ea = amplitudes
+
         self.Var_dict[dk] = ea
-        self._update_pickoff_for_drive(dk)  # <-- recompute pickoff for this frequency
+        self.by_label[label] = dk  # NEW
+        self._update_pickoff_for_drive(dk)
         return dk
 
     def get_drives(self):
@@ -167,6 +201,12 @@ class Trapping_Vars:
         if electrode not in self.Var_dict[drive].amplitudes:
             raise ValueError(f"Electrode {electrode} does not exist.")
         return self.Var_dict[drive].get_amplitude(electrode)
+
+    def get_drive_by_label(self, label: str) -> DriveKey:
+        return self.by_label[label]
+
+    def all_labels(self) -> list[str]:
+        return list(self.by_label.keys())
 
     # --- New: DC-only twist and endcaps --------------------------------------
 
