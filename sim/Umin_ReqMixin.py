@@ -702,6 +702,7 @@ class Umin_ReqMixin:
     def find_U_minimum_robust(self, num_ions):
         init_guess = constants.ion_locations_intial_guess[num_ions]
         init_guess = np.array(init_guess).flatten()
+        print("Initial guess for ion positions:", init_guess)
         # U_test = self.get_U_using_polyfit_dimensionless(init_guess)
         U_min = np.inf
         U_eq = None
@@ -720,141 +721,146 @@ class Umin_ReqMixin:
         """
         for num_ions in range(1, constants.max_ion_in_chain + 1):
             print(f"Finding Umin for {num_ions} ions")
-            eq_dimless = self.find_U_minimum_robust(num_ions)          # shape (N, 3), unitless
-            L0 = constants.length_harmonic_approximation
-            self.ion_equilibrium_positions[num_ions] = eq_dimless * L0  # now meters
-    # #### POSIBLY UNUSED OR OLD ############################
+            eq_dimless = self.find_U_minimum_robust(num_ions)      # shape (n,3), unitless
+            eq_SI = eq_dimless * constants.length_harmonic_approximation
+            self.ion_equilibrium_positions[num_ions] = eq_SI
+            print("eq (m):", eq_SI)
+            print(
+                "eq / L0 (dimensionless):",
+                eq_dimless,
+            )
+# #### POSIBLY UNUSED OR OLD ############################
 
-    # # unused?
-    # def get_U_using_polyfit(self, ionpos_flat):
-    #     n = len(ionpos_flat) // 3
-    #     positions = ionpos_flat.reshape((n, 3))
+# # unused?
+# def get_U_using_polyfit(self, ionpos_flat):
+#     n = len(ionpos_flat) // 3
+#     positions = ionpos_flat.reshape((n, 3))
 
-    #     U_trap = 0.0
-    #     U_coulomb = 0.0
+#     U_trap = 0.0
+#     U_coulomb = 0.0
 
-    #     for ion in range(n):
-    #         x, y, z = positions[ion]
+#     for ion in range(n):
+#         x, y, z = positions[ion]
 
-    #         # Evaluate the model
-    #         voltage_at_point = self.evaluate_center_poly(x, y, z)
+#         # Evaluate the model
+#         voltage_at_point = self.evaluate_center_poly(x, y, z)
 
-    #         U_trap += voltage_at_point * constants.ion_charge
+#         U_trap += voltage_at_point * constants.ion_charge
 
-    #     epsilon = 1e-28  # small buffer to avoid division-by-zero issues
-    #     for i in range(n):
-    #         for j in range(n):
-    #             if i == j:
-    #                 continue
-    #             dist = np.linalg.norm(positions[i] - positions[j])
-    #             dist = max(dist, epsilon)
-    #             U_coulomb += (
-    #                 constants.coulomb_constant * constants.ion_charge**2
-    #             ) / dist
+#     epsilon = 1e-28  # small buffer to avoid division-by-zero issues
+#     for i in range(n):
+#         for j in range(n):
+#             if i == j:
+#                 continue
+#             dist = np.linalg.norm(positions[i] - positions[j])
+#             dist = max(dist, epsilon)
+#             U_coulomb += (
+#                 constants.coulomb_constant * constants.ion_charge**2
+#             ) / dist
 
-    #     return (U_trap + U_coulomb / 2) * 1e25
+#     return (U_trap + U_coulomb / 2) * 1e25
 
-    # # unused?
-    # def get_U_using_polyfit_zeroed(self, ionpos_flat):
-    #     n = len(ionpos_flat) // 3
-    #     inital_guess = constants.ion_locations_intial_guess[n]
-    #     initial_guess = np.array(inital_guess).flatten()
+# # unused?
+# def get_U_using_polyfit_zeroed(self, ionpos_flat):
+#     n = len(ionpos_flat) // 3
+#     inital_guess = constants.ion_locations_intial_guess[n]
+#     initial_guess = np.array(inital_guess).flatten()
 
-    #     return self.get_U_using_polyfit(ionpos_flat) - self.get_U_using_polyfit(
-    #         initial_guess
-    #     )
+#     return self.get_U_using_polyfit(ionpos_flat) - self.get_U_using_polyfit(
+#         initial_guess
+#     )
 
-    # # unused?
-    # def get_U_Grad_using_polyfit(self, ionpos_flat):
-    #     """
-    #     Ok we are going to re-write this such that the gradient is calcualted as if the U is set to zero at the initial_guess
-    #     """
-    #     n = len(ionpos_flat) // 3
-    #     positions = ionpos_flat.reshape((n, 3))
-    #     GradU = np.zeros(3 * n)
+# # unused?
+# def get_U_Grad_using_polyfit(self, ionpos_flat):
+#     """
+#     Ok we are going to re-write this such that the gradient is calcualted as if the U is set to zero at the initial_guess
+#     """
+#     n = len(ionpos_flat) // 3
+#     positions = ionpos_flat.reshape((n, 3))
+#     GradU = np.zeros(3 * n)
 
-    #     for i in range(n):
-    #         xi, yi, zi = positions[i]
-    #         dU_dxi, dU_dyi, dU_dzi = self.evaluate_center_poly_1stderivatives(
-    #             xi, yi, zi
-    #         )
-    #         GradU[3 * i] += dU_dxi * constants.ion_charge
-    #         GradU[3 * i + 1] += dU_dyi * constants.ion_charge
-    #         GradU[3 * i + 2] += dU_dzi * constants.ion_charge
+#     for i in range(n):
+#         xi, yi, zi = positions[i]
+#         dU_dxi, dU_dyi, dU_dzi = self.evaluate_center_poly_1stderivatives(
+#             xi, yi, zi
+#         )
+#         GradU[3 * i] += dU_dxi * constants.ion_charge
+#         GradU[3 * i + 1] += dU_dyi * constants.ion_charge
+#         GradU[3 * i + 2] += dU_dzi * constants.ion_charge
 
-    #         for j in range(n):
-    #             if i == j:
-    #                 continue
-    #             xj, yj, zj = positions[j]
-    #             dist = np.linalg.norm(positions[i] - positions[j])
-    #             dist = max(dist, 1e-12)
+#         for j in range(n):
+#             if i == j:
+#                 continue
+#             xj, yj, zj = positions[j]
+#             dist = np.linalg.norm(positions[i] - positions[j])
+#             dist = max(dist, 1e-12)
 
-    #             GradU[3 * i] += (
-    #                 (constants.coulomb_constant * constants.ion_charge**2)
-    #                 * (xj - xi)
-    #                 / (dist) ** (3 / 2)
-    #             )
+#             GradU[3 * i] += (
+#                 (constants.coulomb_constant * constants.ion_charge**2)
+#                 * (xj - xi)
+#                 / (dist) ** (3 / 2)
+#             )
 
-    #             GradU[3 * i + 1] += (
-    #                 (constants.coulomb_constant * constants.ion_charge**2)
-    #                 * (yj - yi)
-    #                 / (dist) ** (3 / 2)
-    #             )
+#             GradU[3 * i + 1] += (
+#                 (constants.coulomb_constant * constants.ion_charge**2)
+#                 * (yj - yi)
+#                 / (dist) ** (3 / 2)
+#             )
 
-    #             GradU[3 * i + 2] += (
-    #                 (constants.coulomb_constant * constants.ion_charge**2)
-    #                 * (zj - zi)
-    #                 / (dist) ** (3 / 2)
-    #             )
+#             GradU[3 * i + 2] += (
+#                 (constants.coulomb_constant * constants.ion_charge**2)
+#                 * (zj - zi)
+#                 / (dist) ** (3 / 2)
+#             )
 
-    #     return GradU * 1e25
+#     return GradU * 1e25
 
-    # # failed attempt
-    # def find_U_minimum_basin_hopping(self, num_ions, inital_guess=None):
-    #     """
-    #     Minimizes the total potential energy (trap potential + Coulomb)
-    #     for 'number_of_ions' ions using basin hopping.
-    #     """
-    #     if inital_guess is None:
-    #         init_guess_flat = np.array(
-    #             constants.ion_locations_intial_guess[num_ions]
-    #         ).flatten()
-    #     else:
-    #         init_guess_flat = inital_guess.flatten()
+# # failed attempt
+# def find_U_minimum_basin_hopping(self, num_ions, inital_guess=None):
+#     """
+#     Minimizes the total potential energy (trap potential + Coulomb)
+#     for 'number_of_ions' ions using basin hopping.
+#     """
+#     if inital_guess is None:
+#         init_guess_flat = np.array(
+#             constants.ion_locations_intial_guess[num_ions]
+#         ).flatten()
+#     else:
+#         init_guess_flat = inital_guess.flatten()
 
-    #     bounds = constants.ion_locations_bounds[num_ions]
+#     bounds = constants.ion_locations_bounds[num_ions]
 
-    #     result = basinhopping(
-    #         self.get_U_using_polyfit_zeroed,
-    #         init_guess_flat,
-    #         niter=100,
-    #         T=1.0,
-    #         stepsize=0.5,
-    #         minimizer_kwargs={
-    #             "method": "L-BFGS-B",
-    #             "jac": self.get_U_Grad_using_polyfit,
-    #             "bounds": bounds,
-    #             "options": {"disp": True},
-    #         },
-    #     )
+#     result = basinhopping(
+#         self.get_U_using_polyfit_zeroed,
+#         init_guess_flat,
+#         niter=100,
+#         T=1.0,
+#         stepsize=0.5,
+#         minimizer_kwargs={
+#             "method": "L-BFGS-B",
+#             "jac": self.get_U_Grad_using_polyfit,
+#             "bounds": bounds,
+#             "options": {"disp": True},
+#         },
+#     )
 
-    #     if not result.success:
-    #         print("Minimization failed:", result.message)
-    #         # print(result)
-    #     else:
-    #         print("Minimization successful!")
-    #         print("Final potential energy:", result.fun)
+#     if not result.success:
+#         print("Minimization failed:", result.message)
+#         # print(result)
+#     else:
+#         print("Minimization successful!")
+#         print("Final potential energy:", result.fun)
 
-    #     # return just the minimized positions
-    #     return result.x.reshape((num_ions, 3))
+#     # return just the minimized positions
+#     return result.x.reshape((num_ions, 3))
 
-    # # huh?
-    # def check_grad(self):
-    #     ionpos_flat = np.array(constants.ion_locations_intial_guess[5]).flatten()
-    #     print(
-    #         check_grad(
-    #             lambda x: self.get_U_using_polyfit_dimensionless(x),
-    #             lambda x: self.get_U_Grad_using_polyfit_dimensionless(x),
-    #             ionpos_flat,
-    #         )
-    #     )
+# # huh?
+# def check_grad(self):
+#     ionpos_flat = np.array(constants.ion_locations_intial_guess[5]).flatten()
+#     print(
+#         check_grad(
+#             lambda x: self.get_U_using_polyfit_dimensionless(x),
+#             lambda x: self.get_U_Grad_using_polyfit_dimensionless(x),
+#             ionpos_flat,
+#         )
+#     )

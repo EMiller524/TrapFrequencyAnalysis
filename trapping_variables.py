@@ -142,12 +142,17 @@ class Trapping_Vars:
     # --- Public API: add drives / set amps (now with pickoff refresh) --------
 
     def add_driving(
+        
         self,
         label: str,
         freq: float,
         phase: float,
         amplitudes: Electrode_Amplitudes | dict[str, float],
     ) -> DriveKey:
+        """
+        freq is taken in as Hz, phase in radians. Ex Freq = 25500000
+        """
+
         label = label.strip()
         if not label:
             raise ValueError("Drive label must be a non-empty string.")

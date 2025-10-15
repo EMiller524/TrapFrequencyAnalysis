@@ -48,7 +48,7 @@ center_region_y_um = 10 # microns
 center_region_z_um = center_region_y_um
 
 
-#TODO: The values should be applied differently, the current implemetation is flawed
+# TODO: The values should be applied differently, the current implemetation is flawed
 # What should happen is that each pairwise combination of electodes has a capacitance and then
 # that should be used to calculate the pickoff multiplier
 # what we have right now is the RF to [blank] pickoffs
@@ -100,7 +100,7 @@ ion_locations_bounds = {}
 
 # Length in harmonic apoximation
 Z = 1
-typical_axial_freq = 225000 * 6.28  # Hz
+typical_axial_freq = 225000 * 6.28  # Hz ((Rad/sec))
 length_harmonic_approximation = (
     (Z**2 * ion_charge**2) / (4 * 3.1416 * epsilon_0 * ion_mass * typical_axial_freq**2)
 ) ** (1 / 3)
@@ -114,7 +114,7 @@ ion_locations_intial_guess[3] = [[-1.3772, 0, 0], [0, 0, 0], [1.3772, 0, 0]]
 ion_locations_intial_guess[4] = [
     [-1.4368, 0, 0],
     [-0.55438, 0, 0],
-    [-0.45438, 0, 0],
+    [-0.55438, 0, 0],
     [1.4368, 0, 0],
 ]
 ion_locations_intial_guess[5] = [
@@ -175,21 +175,34 @@ ion_locations_intial_guess[10] = [
     [2.3, 0, 0],
 ]
 
-
-
 for i in range(1, max_ion_in_chain + 1):
-    for pnt in range(len(ion_locations_intial_guess[i])):
-        ion_locations_intial_guess[i][pnt][0] = (
-            ion_locations_intial_guess[i][pnt][0] * length_harmonic_approximation
-        )
     ion_locations_bounds[i] = [
-        (-200e-6, 200e-6),
-        (-1e-6, 1e-6),
-        (-1e-6, 1e-6),
+        (
+            -200e-6 / length_harmonic_approximation,
+            200e-6 / length_harmonic_approximation,
+        ),
+        (-1e-6 / length_harmonic_approximation, 1e-6 / length_harmonic_approximation),
+        (-1e-6 / length_harmonic_approximation, 1e-6 / length_harmonic_approximation),
     ] * (i)
 
-# print("Constants loaded")
+    # make sure the initial guess is a float
+    for pnt in range(len(ion_locations_intial_guess[i])):
+        ion_locations_intial_guess[i][pnt][0] = (
+            float(ion_locations_intial_guess[i][pnt][0]))
 
+
+# for i in range(1, max_ion_in_chain + 1):
+#     for pnt in range(len(ion_locations_intial_guess[i])):
+#         ion_locations_intial_guess[i][pnt][0] = (
+#             ion_locations_intial_guess[i][pnt][0] * length_harmonic_approximation
+#         )
+#     ion_locations_bounds[i] = [
+#         (-200e-6, 200e-6),
+#         (-1e-6, 1e-6),
+#         (-1e-6, 1e-6),
+#     ] * (i)
+
+# print("Constants loaded")
 
 
 # testing

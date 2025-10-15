@@ -76,6 +76,7 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
         self.ion_equilibrium_positions = {}
         self.ion_eigenvectors = {}
         self.ion_eigenvalues = {}
+        self.normal_modes_and_frequencies = {}
 
         timesimstop = time.time()
         print(
@@ -190,17 +191,20 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
         print("[smoke] fitting center polys…")
         self.update_center_polys(polyfit_deg=poly_deg)
         assert self.center_fits.get(self.trapVariables.dc_key) is not None
+        for dk in self.trapVariables.get_drives():
+            if dk != self.trapVariables.dc_key:
+                assert self.center_fits.get(dk) is not None    
 
         print("[smoke] finding U minimum…")
         self.find_equilib_positions()
         eq_pos = self.ion_equilibrium_positions.get(n_ions)
-        print(self.ion_equilibrium_positions.get(1))
-        print("")
-        print(self.ion_equilibrium_positions.get(2))
-        print("")
-        print(self.ion_equilibrium_positions.get(3))
-        print("")
-        print(self.ion_equilibrium_positions.get(4))
+        # print(self.ion_equilibrium_positions.get(1))
+        # print("")
+        # print(self.ion_equilibrium_positions.get(2))
+        # print("")
+        # print(self.ion_equilibrium_positions.get(3))
+        # print("")
+        # print(self.ion_equilibrium_positions.get(4))
 
         # assert eq.shape == (n_ions, 3)
 
@@ -209,9 +213,13 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
         assert H.shape == (3 * n_ions, 3 * n_ions)
         vals, vecs = self.get_mode_eigenvec_and_val(n_ions)
         assert len(vals) == 3 * n_ions and vecs.shape == (3 * n_ions, 3 * n_ions)
-        for v in vals:
-            freq = self.get_freq_from_eigenvalue(v)
-            print("  freq (MHz):", freq / 1e6)
+        omega = np.sqrt(abs(vals) / constants.ion_mass)
+        f_Hz = omega / (2*np.pi)
+        f_MHz = f_Hz * 1e-6
+        print("secular frequencies (MHz):", f_MHz) ### THIS IS THE CORRECT UNITS ###
+        print("")
+        self.get_static_normal_modes_and_freq(n_ions)
+        print(self.normal_modes_and_frequencies)
 
         print("[smoke] 3rd/4th derivative contractions…")
         g3 = self.get_3_wise_mode_couplings(n_ions)
@@ -223,6 +231,9 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
             _ = g4[(0, 0, 0, 0)]
 
         print("[smoke] OK")
+
+        print("extras")
+        print(" ")
 
     #############################OLD####################
 
@@ -833,19 +844,82 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
         return
 
 
+def check_E_units_on_center_line(df, electrode="RF1"):
+    import numpy as np, pandas as pd
+
+    vcol = f"{electrode}_V"
+    ecol = f"{electrode}_Ex"
+    for c in ("x","y","z", vcol, ecol):
+        if c not in df.columns:
+            print(f"Missing column: {c}")
+            return
+
+    # pick the y=const, z=const plane closest to (0,0)
+    ys = np.unique(df["y"].to_numpy())
+    zs = np.unique(df["z"].to_numpy())
+    y0 = ys[np.argmin(np.abs(ys))]
+    z0 = zs[np.argmin(np.abs(zs))]
+
+    line = df[(df["y"]==y0) & (df["z"]==z0)][["x", vcol, ecol]].sort_values("x")
+    line = line.drop_duplicates(subset="x")
+
+    if len(line) < 5:
+        print("Not enough points on the center line to check E units.")
+        return
+
+    x  = line["x"].to_numpy()
+    V  = line[vcol].to_numpy()
+    Ex = line[ecol].to_numpy()
+
+    # robust slope at center via linear fit (less noisy than raw gradient)
+    A = np.c_[np.ones_like(x), x]
+    beta, *_ = np.linalg.lstsq(A, V, rcond=None)   # V ≈ beta0 + beta1 * x
+    dVdx_fit = beta[1]
+
+    # compare signs/magnitudes
+    ratio = np.median(-Ex / dVdx_fit)
+    print(f"Center line: y={y0:.3e} m, z={z0:.3e} m, points={len(line)}")
+    print(f"median(-Ex / dVdx_fit) = {ratio:.3g}   (≈1 if Ex in V/m; ≈1e6 if Ex in V/µm)")
+
+
 if __name__ == "__main__":
 
     tv = Trapping_Vars()
-    rf = tv.add_driving("RF", 25500000 * 2 * math.pi, 0.0, {"RF1": 377.0, "RF2": 377.0})
+    rf = tv.add_driving("RF", 25500000, 0.0, {"RF1": 377.0, "RF2": 377.0})
     tv.apply_dc_twist_endcaps(twist=0.275, endcaps=3)  # volts
 
+    extradrive = tv.add_driving(
+        "ExtraDrive1",
+        28000,
+        0.0,
+        {
+            "DC1": -0.1,
+            "DC2": -.05,
+            "DC3": 0.0,
+            "DC4": 0.05,
+            "DC5": 0.1,
+            "DC10": -0.1,
+            "DC9": -.05,
+            "DC8": 0.0,
+            "DC7": 0.05,
+            "DC6": 0.1,
+        },
+    )
+
     test_sim = Simulation("Simp58_101", tv)
-    
-    test_sim._smoke_test_new_stack(n_ions=1, poly_deg=4)
+
+    test_sim._smoke_test_new_stack(n_ions=3, poly_deg=4)
+
+    g0 = test_sim.get_g0_matrix(3,extradrive)
+    print(" ")
+    print(g0)
+    print(" ")
+    print(test_sim.find_largest_g0(3, extradrive))
 
 
 # print("hi")
 # t1 = time.time()
+
 
 # evaribs = evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, -0.275, 5)
 # evaribs.set_frequency("DC3", 80_000)

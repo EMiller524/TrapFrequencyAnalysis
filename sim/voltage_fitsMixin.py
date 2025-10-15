@@ -96,5 +96,6 @@ class VoltageFitsMixin:
         return model, poly, r2
 
 
+
 if __name__ == "__main__":
     print("hi")
