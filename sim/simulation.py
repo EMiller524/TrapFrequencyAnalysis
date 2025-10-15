@@ -13,9 +13,6 @@ import dataextractor
 import constants
 import time
 import matplotlib.cm as cm
-from SimulationMix.simulation_ploting import sim_ploting
-from SimulationMix.simulation_fitting import sim_normalfitting
-from SimulationMix.simulation_Umin import U_energy
 from multiprocessing import Pool, cpu_count
 from joblib import Parallel, delayed
 from scipy.interpolate import griddata
@@ -26,8 +23,17 @@ from scipy.optimize import differential_evolution
 from scipy.interpolate import RBFInterpolator
 from trapping_variables import Trapping_Vars, DriveKey, drive_colname
 
+from sim.voltage_interfaceMixin import VoltageInterfaceMixin
+from sim.voltage_fitsMixin import VoltageFitsMixin
+from sim.Umin_ReqMixin import Umin_ReqMixin
+from sim.StaticCoupolingMixin import StaticCoupolingMixin
+from sim.StaticNormalModes_EigenMixin import StaticNormalModes_EigenMixin
 
-class Simulation(sim_ploting, sim_normalfitting, U_energy):
+from sim.simulation_ploting import sim_ploting
+from sim.simulation_fitting import sim_normalfitting
+
+
+class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMixin, VoltageInterfaceMixin, VoltageFitsMixin, sim_ploting, sim_normalfitting):
     def __init__(self, dataset, trapVars=Trapping_Vars()):
         """
         Initialize the simulation object by making sure the data is all extracted and finding total voltages if given electodes
@@ -159,6 +165,66 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
 
         # done
         return
+
+    def change_electrode_variables(self, new_vars: Trapping_Vars):
+        """
+        Change the electrode variables of the simulation to new_vars and update the total voltage DataFrame.
+        """
+        self.trapVariables = new_vars
+        self.update_total_voltage_columns()
+
+    def _smoke_test_new_stack(self, n_ions=2, poly_deg=4):
+        import numpy as np
+
+        print("[smoke] building TotalV columns…")
+        self.update_total_voltage_columns()
+
+        # sanity: columns exist
+        assert "Static_TotalV" in self.total_voltage_df.columns
+        for dk in self.trapVariables.get_drives():
+            if dk != self.trapVariables.dc_key:
+                assert (
+                    drive_colname(dk) in self.total_voltage_df.columns
+                ), f"Missing {drive_colname(dk)}"
+
+        print("[smoke] fitting center polys…")
+        self.update_center_polys(polyfit_deg=poly_deg)
+        assert self.center_fits.get(self.trapVariables.dc_key) is not None
+
+        print("[smoke] finding U minimum…")
+        self.find_equilib_positions()
+        eq_pos = self.ion_equilibrium_positions.get(n_ions)
+        print(self.ion_equilibrium_positions.get(1))
+        print("")
+        print(self.ion_equilibrium_positions.get(2))
+        print("")
+        print(self.ion_equilibrium_positions.get(3))
+        print("")
+        print(self.ion_equilibrium_positions.get(4))
+
+        # assert eq.shape == (n_ions, 3)
+
+        print("[smoke] Hessian & modes…")
+        H = self.get_eq_U_hessian(n_ions)
+        assert H.shape == (3 * n_ions, 3 * n_ions)
+        vals, vecs = self.get_mode_eigenvec_and_val(n_ions)
+        assert len(vals) == 3 * n_ions and vecs.shape == (3 * n_ions, 3 * n_ions)
+        for v in vals:
+            freq = self.get_freq_from_eigenvalue(v)
+            print("  freq (MHz):", freq / 1e6)
+
+        print("[smoke] 3rd/4th derivative contractions…")
+        g3 = self.get_3_wise_mode_couplings(n_ions)
+        g4 = self.get_4_wise_mode_couplings(n_ions)
+        # touch a couple entries if present
+        if (0, 0, 0) in g3:
+            _ = g3[(0, 0, 0)]
+        if (0, 0, 0, 0) in g4:
+            _ = g4[(0, 0, 0, 0)]
+
+        print("[smoke] OK")
+
+    #############################OLD####################
 
     def update_total_voltage_OLD(self):
         """Update the total voltage DataFrame by forming
@@ -305,332 +371,6 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
         )
 
         return
-
-    def change_electrode_variables(self, new_vars: Trapping_Vars):
-        """
-        Change the electrode variables of the simulation to new_vars and update the total voltage DataFrame.
-        """
-        self.trapVariables = new_vars
-        self.update_total_voltage_columns()
-
-    def find_V_min(self, step_size=5):
-        """
-        Finds and returns the point with the minimum total voltage.
-
-        To catch errors, the minimum 100 points are found. If they are all close to each other, then the minimum is found.
-        If there are outliers, they are thrown out, then the minimum is found.
-        then the points around this min are fit to a quadratic to find the best fit min
-
-        step_size is used to determine the cutout size for the R3 fit around the minimum point.
-
-        args:
-            step_size (float): The step size(in microns) to use for the cutout around the minimum point. Default is 5 microns.
-            Note if step size is too small an error will be thrown (must be over 5)
-
-        returns:
-            the best fit minimum point (x,y,z) in meters and the dataframe minimum
-        """
-
-        if step_size <= 4.9:
-            raise ValueError("Step size must be greater than 5.")
-
-        step_size = step_size * 1e-6  # Convert microns to meters for calculations
-
-        if self.total_voltage_df is None:
-            print("Total voltage data not available.")
-            return None
-        time1 = time.time()
-
-        # Sort by TotalV to find the minimum values
-
-        def find_nsmallest_df(df, colname, n=100):
-            # 1) Extract column values
-            arr = df[colname].to_numpy()
-
-            # 2) Grab the indices of the n smallest values (unordered)
-            idx = np.argpartition(arr, n)[:n]
-
-            # 3) Sort those n rows by their actual values so the final result is ascending
-            idx_sorted = idx[np.argsort(arr[idx])]
-
-            # 4) Index back into the DataFrame
-            return df.iloc[idx_sorted]
-
-        # Usage:
-        sorted_df = find_nsmallest_df(self.total_voltage_df, "TotalV", n=100)
-
-        # Check proximity of the top 1000 minimum points
-        points = sorted_df[["x", "y", "z"]].values
-        calcV_values = sorted_df["TotalV"].values
-
-        # Calculate distances between points
-        distances = np.linalg.norm(points[:, np.newaxis] - points, axis=2)
-
-        # Calculate average distance from each point to all other points
-        average_distances = np.mean(distances, axis=1)
-
-        # Identify outliers based on average distance threshold
-        threshold = np.percentile(average_distances, 80)
-        outliers_mask = average_distances > threshold
-
-        # Filter out outliers
-        filtered_points = points[~outliers_mask]
-        filtered_calcV = calcV_values[~outliers_mask]
-
-        if len(filtered_points) < 70:
-            print("Many min points removed")
-            print("Total points removed: " + str(len(points) - len(filtered_points)))
-
-        # Find the minimum point among the filtered points
-        min_index = np.argmin(filtered_calcV)
-        min_point = filtered_points[min_index]
-
-        ## Get the surrounding points for R3 fit using stepsize as the cutoff
-        cutout_of_df = self.total_voltage_df[
-            (
-                self.total_voltage_df["x"].between(
-                    min_point[0] - (5 * step_size), min_point[0] + (5 * step_size)
-                )
-            )
-            & (
-                self.total_voltage_df["y"].between(
-                    min_point[1] - step_size, min_point[1] + step_size
-                )
-            )
-            & (
-                self.total_voltage_df["z"].between(
-                    min_point[2] - step_size, min_point[2] + step_size
-                )
-            )
-        ]
-
-        voltage_vals = cutout_of_df["TotalV"].values
-        xyz_vals_uncentered = cutout_of_df[["x", "y", "z"]].values
-
-        # Make the Point of interest the origin (0,0,0) and move the other points accordingly
-        xyz_vals_centered = xyz_vals_uncentered - min_point
-
-        poly = PolynomialFeatures(degree=2, include_bias=True)
-        X_poly = poly.fit_transform(xyz_vals_centered)
-
-        # Fit the model
-        model = LinearRegression()
-        model.fit(X_poly, voltage_vals)
-
-        # (4) Extract coefficients
-        # model.coef_ is length-10 if include_bias=True for 3D data; also consider model.intercept_
-        c0 = model.intercept_
-        c1, c2, c3, c4, c5, c6, c7, c8, c9 = model.coef_[
-            1:
-        ]  # skipping the bias column's coef
-
-        # (5) Solve gradient=0 for (x, y, z) in the centered frame
-        H = np.array([[2 * c4, c5, c6], [c5, 2 * c7, c8], [c6, c8, 2 * c9]])
-        linear_terms = np.array([c1, c2, c3])
-
-        delta_xyz_centered = np.linalg.solve(H, -linear_terms)
-
-        # (6) Shift back to original coordinates
-        best_fit_minimum = min_point + delta_xyz_centered
-
-        time5 = time.time()
-
-        # print("Total time taken to find min: ", time5 - time1)
-
-        # print("best_fit_minimum: ", best_fit_minimum)
-        # print("min_point: ", min_point)
-        return best_fit_minimum, min_point
-
-    def find_V_trap_at_point_fast_and_dirty(self, x, y, z, starting_step=0.49):
-        """
-        Lol dont use this
-
-        Finds and returns the potential of the trap at a given point (x,y,z).
-        The function takes in the coordinates of the desired point in space and returns the potential (V).
-
-        We do this fast by using the df to find the 8 closest points and avergaing them.
-        """
-        # starting_step = starting_step * 1e-6  # Convert microns to meters for calculations
-
-        ## Get the surrounding points for R3 fit using stepsize as the cutoff
-        cutout_of_df = pd.DataFrame()
-
-        # while len(cutout_of_df) < 10:
-        #     cutout_of_df = self.total_voltage_df[
-        #     (self.total_voltage_df["x"].between(x - (20 * starting_step), x + (20 * starting_step)))
-        #     & (self.total_voltage_df["y"].between(y - starting_step, y + starting_step))
-        #     & (self.total_voltage_df["z"].between(z - starting_step, z + starting_step))
-        #     ]
-
-        #     starting_step += (.01 * 1e-6)
-        # print(starting_step, "************************************************************************************")
-        starting_step = (
-            starting_step * 1e-6
-        )  # Convert microns to meters for calculations
-        cutout_of_df = self.total_voltage_df[
-            (
-                self.total_voltage_df["x"].between(
-                    x - (20 * starting_step), x + (20 * starting_step)
-                )
-            )
-            & (self.total_voltage_df["y"].between(y - starting_step, y + starting_step))
-            & (self.total_voltage_df["z"].between(z - starting_step, z + starting_step))
-        ]
-
-        voltage_vals = cutout_of_df["TotalV"].values
-        print(len(voltage_vals))
-        avg_V = np.mean(voltage_vals)
-
-        return avg_V
-
-    def find_V_trap_at_point(self, x, y, z, starting_step=0.4, derivs=False):
-        """
-        Finds and returns the potential of the trap at a given point (x,y,z).
-        The function takes in the coordinates of the desired point in space and returns the potential (V).
-
-        To do this we find the closest 50 values in the dataframe to the point (x,y,z) and then use these points to find the potential at the point.
-        """
-
-        starting_step = (
-            starting_step * 1e-6
-        )  # Convert microns to meters for calculations
-
-        ## Get the surrounding points for R3 fit using stepsize as the cutoff
-        cutout_of_df = pd.DataFrame()
-
-        len_df = len(self.total_voltage_df)
-
-        while len(cutout_of_df) < 20:
-            cutout_of_df = self.total_voltage_df[
-                (
-                    self.total_voltage_df["x"].between(
-                        x - (10 * starting_step), x + (10 * starting_step)
-                    )
-                )
-                & (
-                    self.total_voltage_df["y"].between(
-                        y - starting_step, y + starting_step
-                    )
-                )
-                & (
-                    self.total_voltage_df["z"].between(
-                        z - starting_step, z + starting_step
-                    )
-                )
-            ]
-
-            starting_step += 5 * 1e-6
-
-        voltage_vals = cutout_of_df["TotalV"].values
-        # print(len(cutout_of_df), " points found in cutout")
-        # print("voltage_vals: ", voltage_vals)
-        xyz_vals_uncentered = cutout_of_df[["x", "y", "z"]].values
-
-        # Make the Point of interest the origin (0,0,0) and move the other points accordingly
-        xyz_vals_centered = xyz_vals_uncentered - [x, y, z]
-        t1 = time.time()
-
-        poly = PolynomialFeatures(degree=3, include_bias=True)
-        X_poly = poly.fit_transform(xyz_vals_centered)
-
-        # Fit the model
-        model = LinearRegression()
-        model.fit(X_poly, voltage_vals)
-        t2 = time.time()
-
-        # find and print out the r2 of the fit
-        r2 = model.score(X_poly, voltage_vals)
-        # print("R-squared of the fit:", r2)
-
-        # Get derivatives (d/dx, d/dy, d/dz) at point
-        derivatives = model.coef_[1:4]
-
-        # find the value of the fit at the origin
-        Vvalue_at_point = model.predict(poly.transform([[0, 0, 0]]))
-        # print("Time taken to find V at point: ", t2 - t1)
-
-        if derivs:
-            # Return the derivatives at the point
-            return Vvalue_at_point[0], derivatives
-        return Vvalue_at_point[0]
-        # Calculate the potential energy of the ions
-
-    def update_center_polys(self, polyfit_deg=4):
-        drives = self.trapVariables.get_drives()
-        for drive in drives:
-            self.center_fits[drive] = self.get_voltage_poly_for_drive_at_region(
-                drive,
-                region_x_low=-constants.center_region_x_um,
-                region_x_high=constants.center_region_x_um,
-                region_y_low=-constants.center_region_y_um,
-                region_y_high=constants.center_region_y_um,
-                region_z_low=-constants.center_region_z_um,
-                region_z_high=constants.center_region_z_um,
-                polyfit=polyfit_deg,
-            )
-        return
-
-    def get_voltage_poly_for_drive_at_region(
-        self,
-        drive: DriveKey,
-        region_x_low=-100,
-        region_x_high=100,
-        region_y_low=-10,
-        region_y_high=10,
-        region_z_low=-10,
-        region_z_high=10,
-        max_pnts=1e6,
-        polyfit=4,
-    ):
-
-        # region cutout (bounds in µm; DF stores meters)
-        df = self.total_voltage_df
-        cutout = df[
-            df["x"].between(region_x_low * 1e-6, region_x_high * 1e-6)
-            & df["y"].between(region_y_low * 1e-6, region_y_high * 1e-6)
-            & df["z"].between(region_z_low * 1e-6, region_z_high * 1e-6)
-        ].copy()
-
-        if drive.f_uHz == 0:
-            column_name = "Static_TotalV"
-        else:
-            column_name = drive_colname(drive)
-
-        if column_name not in cutout.columns:
-            raise KeyError(
-                f"Voltage column '{column_name}' not found. Available: {list(cutout.columns)}"
-            )
-
-        # drop rows with NaNs in inputs/target
-        cutout.dropna(subset=["x", "y", "z", column_name], inplace=True)
-
-        # (optional) cap point count
-        max_pnts_int = int(max_pnts)
-        if len(cutout) > max_pnts_int:
-            cutout = cutout.sample(n=max_pnts_int, random_state=1)
-            print("len(cutout) was cut to:", len(cutout))
-        print("len(cutout):", len(cutout))
-        if len(cutout) == 0:
-            raise ValueError("No points in region after filtering/sampling.")
-
-        # features/target
-        xyz_vals = cutout[["x", "y", "z"]].values
-        voltage_vals = cutout[column_name].values
-
-        poly = PolynomialFeatures(degree=polyfit, include_bias=True)
-        X_poly = poly.fit_transform(xyz_vals)
-
-        model = LinearRegression(fit_intercept=False)  # avoid double bias term
-        model.fit(X_poly, voltage_vals)
-
-        r2 = model.score(X_poly, voltage_vals)
-        if r2 < 0.999:
-            print(
-                "WARNING: Low R-squared for polynomial fit in get_voltage_poly_for_drive_at_region"
-            )
-            print("R-squared:", r2)
-
-        return model, poly, r2
 
     # Important and old
     def get_voltage_poly_at_center_old(
@@ -1091,6 +831,17 @@ class Simulation(sim_ploting, sim_normalfitting, U_energy):
     # Not writen
     def get_ion_mins(self):
         return
+
+
+if __name__ == "__main__":
+
+    tv = Trapping_Vars()
+    rf = tv.add_driving("RF", 25500000 * 2 * math.pi, 0.0, {"RF1": 377.0, "RF2": 377.0})
+    tv.apply_dc_twist_endcaps(twist=0.275, endcaps=3)  # volts
+
+    test_sim = Simulation("Simp58_101", tv)
+    
+    test_sim._smoke_test_new_stack(n_ions=1, poly_deg=4)
 
 
 # print("hi")

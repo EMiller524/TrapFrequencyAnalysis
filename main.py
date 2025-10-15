@@ -29,7 +29,7 @@ import math
 import time
 from matplotlib import pyplot as plt
 import numpy as np
-from simulation import Simulation
+from sim.simulation import Simulation
 import experiment_funcs
 import electrode_vars_old as evars
 import constants

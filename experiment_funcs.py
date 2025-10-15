@@ -5,7 +5,7 @@ This file contains functions to run experiments using simulation
 import math
 
 import numpy as np
-from simulation import Simulation
+from sim.simulation import Simulation
 import electrode_vars_old as evars
 import matplotlib.pyplot as plt
 import constants
