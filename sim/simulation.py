@@ -73,18 +73,16 @@ class Simulation(
         # get the total voltage at each point based on the electrode variables
         self.update_total_voltage_columns()
 
-        # vestigial i think???? cause its turned into {} on line 68 keeping for now
-        # self.ion_equilibrium_positions = {
-        #     i: tuple([[np.inf, np.inf, np.inf] for _ in range(i)])
-        #     for i in range(1, constants.max_ion_in_chain + 1)
-        # }
-
         # init other variables
         self.center_fits = {}  # Placeholder for the center fit model
         self.ion_equilibrium_positions = {}
         self.ion_eigenvectors = {}
         self.ion_eigenvalues = {}
         self.normal_modes_and_frequencies = {}
+        self.driven_g_0_2_couplings = {}
+        self.driven_g_0_3_couplings = {}
+        self.inherent_g_0_3_couplings = {}
+        self.inherent_g_0_4_couplings = {}
 
         timesimstop = time.time()
         print(
@@ -918,7 +916,7 @@ if __name__ == "__main__":
         },
     )
 
-    test_sim = Simulation("NISTMock", tv)
+    test_sim = Simulation("Simp58_101", tv)
 
     test_sim._smoke_test_new_stack(n_ions=3, poly_deg=4)
 
@@ -939,6 +937,61 @@ if __name__ == "__main__":
     print(test_sim.ion_equilibrium_positions.get(3))
     print(g0[1][2])
     print(g0[2][1])
+
+    print(" hi hi hi hi hi hi hi ")
+    test_sim.get_3_wise_mode_couplingss(3)
+    test_sim.get_4_wise_mode_couplingss(3)
+
+    print(test_sim.inherent_g_0_3_couplings)
+    print("")
+    print( "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh" )
+    print("")
+    print(test_sim.inherent_g_0_4_couplings)
+
+    np.set_printoptions(suppress=True, linewidth=200, threshold=10**8)
+
+    def _as_array(x):
+        if isinstance(x, np.ndarray):
+            return x
+        if isinstance(x, dict):
+            # try common wrappers
+            for key in ("g3_Hz", "g4_Hz"):
+                if key in x and isinstance(x[key], np.ndarray):
+                    return x[key]
+            # try num_ions key
+            for k, v in x.items():
+                if isinstance(v, np.ndarray):
+                    return v
+        return np.asarray(x)
+
+    def _stats(name, A):
+        A = np.ravel(np.abs(np.asarray(A)))
+        A = A[np.isfinite(A)]
+        if A.size == 0:
+            print(f"{name}: no finite data")
+            return
+        print(
+            f"{name}: count={A.size}, mean={A.mean():.3e}, median={np.median(A):.3e}, "
+            f"Q1={np.percentile(A,25):.3e}, Q3={np.percentile(A,75):.3e}, std={A.std():.3e}"
+        )
+
+    # 3-wise
+    G3 = _as_array(test_sim.inherent_g_0_3_couplings)
+    print("\n=== Full 3-wise g0 tensor (Hz) ===")
+    print(f"shape={getattr(G3, 'shape', None)}, dtype={getattr(G3, 'dtype', None)}")
+    print(G3)
+    _stats("g0 (3-wise) |Hz|", G3)
+
+    # 4-wise
+    G4 = _as_array(test_sim.inherent_g_0_4_couplings)
+    print("\n=== Full 4-wise g0 tensor (Hz) ===")
+    print(f"shape={getattr(G4, 'shape', None)}, dtype={getattr(G4, 'dtype', None)}")
+    print(G4)
+    _stats("g0 (4-wise) |Hz|", G4)
+    _stats("g0 (3-wise) |Hz|", G3)
+
+
+# find and print the avg, median, uper lower quartile mean std of the g_0 couplings for 3 and 4 wise couplings
 
 
 # print("hi")

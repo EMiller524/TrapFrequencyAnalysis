@@ -19,7 +19,7 @@ class StaticCoupolingMixin:
     This class will be inherited by the simulation class and will contain all fucntions used to find modes and their coupling.
     """
 
-    # look over
+    # lofok over
     def get_3_wise_mode_couplings(self, num_ions):
         """
         This will be done by contracting the 3rd derivative tensor with the eigenvectors.
@@ -39,7 +39,139 @@ class StaticCoupolingMixin:
 
                     three_wise_couplings[(modei, modej, modek)] = coupling_ijk
                 # contract the tensor with the eigenvector
+
+        self.inherent_g_0_3_couplings[num_ions] = three_wise_couplings
+
         return three_wise_couplings
+
+    def get_3_wise_mode_couplingss(
+        self,
+        num_ions: int
+    ):
+        """
+        Compute cubic (3-wise) mode couplings by contracting the 3rd-derivative tensor
+        with the mode eigenvectors.
+        """
+        import numpy as np
+
+        # --- Ensure modes/frequencies exist ---
+        if num_ions not in getattr(self, "normal_modes_and_frequencies", {}):
+            self.get_static_normal_modes_and_freq(num_ions)
+
+        # Fetch eigenvectors (columns = modes) and make a working copy
+        V = np.array(
+            self.normal_modes_and_frequencies[num_ions]["modes"], dtype=float, copy=True
+        )  # (3N,3N)
+
+        # Unit/normalization check for eigenvectors
+        col_norms = np.linalg.norm(V, axis=0)
+        if not np.allclose(col_norms, 1.0, rtol=1e-3, atol=1e-8):
+            print("Warning")
+            print("Warning: Eigenvectors are not normalized!")
+            print("Warning")
+
+        # --- Get the 3rd-derivative tensor at equilibrium ---
+        T = np.array(
+            self.get_eq_3rd_der_tensor(num_ions), dtype=float, copy=False
+        )  # (3N,3N,3N)
+
+        # Convert voltage derivatives to energy derivatives if needed: U = q V   NO!
+        # q_SI = constants.ion_charge  # C
+        # T = q_SI * T  # now J/m^3
+
+        # --- Contract to mode basis: C[a,b,c] ---
+        # einsum: i,j,k over real-space, a,b,c over modes (columns)
+        C = np.einsum("ijk,ia,jb,kc->abc", T, V, V, V, optimize=True)  # J/m^3
+
+        # --- Frequencies and mass ---
+        freqs_Hz = np.asarray(
+            self.normal_modes_and_frequencies[num_ions]["frequencies_Hz"], dtype=float
+        )  # Hz
+        omega = 2.0 * np.pi * freqs_Hz  # rad/s
+
+        m_SI = constants.ion_mass  # kg
+
+        denom = (
+            4.0
+            * m_SI
+            * np.sqrt(omega[:, None, None] * omega[None, :, None] * omega[None, None, :])
+        )
+
+        g3_rad_s = C / denom
+        g3_Hz = g3_rad_s / (2.0 * np.pi)
+
+        self.inherent_g_0_3_couplings[num_ions] = g3_Hz
+
+        return g3_Hz
+
+    def get_4_wise_mode_couplingss(
+        self,
+        num_ions: int
+    ):
+        """
+        Compute quartic (4-wise) mode couplings by contracting the 4th-derivative tensor
+        with the mode eigenvectors.
+        """
+        import numpy as np
+
+        # --- Ensure modes/frequencies exist ---
+        if num_ions not in getattr(self, "normal_modes_and_frequencies", {}):
+            self.get_static_normal_modes_and_freq(num_ions)
+
+        # Fetch eigenvectors (columns = modes) and make a working copy
+        V = np.array(
+            self.normal_modes_and_frequencies[num_ions]["modes"], dtype=float, copy=True
+        )  # (3N,3N)
+
+        # Unit/normalization check for eigenvectors
+        col_norms = np.linalg.norm(V, axis=0)
+        if not np.allclose(col_norms, 1.0, rtol=1e-3, atol=1e-8):
+            print("Warning")
+            print("Warning: Eigenvectors are not normalized!")
+            print("Warning")
+
+        # --- Get the 4th-derivative tensor at equilibrium ---
+        Q = np.array(
+            self.get_eq_4th_der_tensor(num_ions), dtype=float, copy=False
+        )  # (3N,3N,3N,3N)
+
+        # # Convert voltage derivatives to energy derivatives if needed: U = q V   NO!!
+        # q_SI = constants.ion_charge  # C
+        # Q = q_SI * Q  # now J/m^4
+
+        # --- Contract to mode basis: D[a,b,c,d] ---
+        # einsum: i,j,k,l over real-space, a,b,c,d over modes (columns)
+        D = np.einsum("ijkl,ia,jb,kc,ld->abcd", Q, V, V, V, V, optimize=True)  # J/m^4
+
+        # --- Frequencies and mass ---
+        freqs_Hz = np.asarray(
+            self.normal_modes_and_frequencies[num_ions]["frequencies_Hz"], dtype=float
+        )  # Hz
+        omega = 2.0 * np.pi * freqs_Hz  # rad/s
+
+        m_SI = constants.ion_mass  # kg
+
+        # Rate-style normalization (convention analogous to cubic case)
+        # g4 ~ D / (8 m sqrt(ω_a ω_b ω_c ω_d))  -> rad/s
+        denom = (
+            8.0
+            * m_SI
+            * np.sqrt(
+                omega[:, None, None, None]
+                * omega[None, :, None, None]
+                * omega[None, None, :, None]
+                * omega[None, None, None, :]
+            )
+        )
+        denom = np.where(denom == 0, np.finfo(float).eps, denom)
+
+        g4_rad_s = D / denom
+        g4_Hz = g4_rad_s / (2.0 * np.pi)
+
+        # Cache
+        self.inherent_g_0_4_couplings[num_ions] = g4_Hz
+
+        return g4_Hz
 
     # look over
     def get_4_wise_mode_couplings(self, num_ions):
@@ -69,11 +201,12 @@ class StaticCoupolingMixin:
                         )
 
                 # contract the tensor with the eigenvector
+        self.inherent_g_0_4_couplings[num_ions] = four_wise_couplings
         return four_wise_couplings
 
     # ========== g0: static parametric coupling from a modulation drive ==========
 
-    #TODO Check these derivatives use paper, wrote at 1am and no paper
+    # TODO Check these derivatives use paper, wrote at 1am and no paper
     def _poly_hessian_at(self, model, poly, r_xyz):
         """
         Analytic Hessian (3x3) of a 3D PolynomialFeatures+LinearRegression fit,
@@ -182,7 +315,7 @@ class StaticCoupolingMixin:
         omega = 2.0 * math.pi * f_Hz  # rad/s
         return V, omega
 
-    # asdfghj
+    # good
     def _sum_MtHM_over_ions(self, H_list, V):
         """
         Efficiently compute C = sum_n ( M_n^T H_n M_n ), where
@@ -201,6 +334,7 @@ class StaticCoupolingMixin:
             C += Mn.T @ Hn @ Mn
         return C
 
+    # good
     def get_g0_matrix(self, num_ions, drive):
         """
         Compute the static parametric coupling matrix g0 (K x K) for the given *modulation* drive,
@@ -214,24 +348,24 @@ class StaticCoupolingMixin:
         """
         import numpy as np
 
-        # Guard: DC is not a modulation drive (you asked for non-zero, non-max drives)
+        # Guard
         if drive == self.trapVariables.dc_key:
             raise ValueError(
                 "DC drive is not a modulation drive for g0. Choose a non-DC drive."
             )
 
-        # 1) Hessians of the modulation potential at each ion
+        # Hessians of the modulation potential at each ion
         H_list = self._drive_hessians_at_eq(num_ions, drive)  # list of 3x3 (V/m^2)
 
-        # 2) Normalized modes and secular angular frequencies (rad/s)
+        # Normalized modes and secular angular frequencies (rad/s)
         V, omega = self._get_modes_normalized_from_cache(
             num_ions
         )  # V: (3N x K), omega: (K,)
 
-        # 3) Sum over ions of M^T H M  (unscaled KxK)
+        # Sum over ions of M^T H M  (unscaled KxK)
         C = self._sum_MtHM_over_ions(H_list, V)  # V/m^2 in modal basis
 
-        # 4) Scale by q / (4 m sqrt(ω_a ω_b))
+        # Scale by q / (4 m sqrt(ω_a ω_b))
         denom = np.sqrt(omega[:, None] * omega[None, :])
         # protect against any accidental zeros (shouldn't happen for trapped modes)
         denom = np.where(denom > 0.0, denom, np.inf)
@@ -241,8 +375,14 @@ class StaticCoupolingMixin:
 
         # symmetry cleanup (numerical)
         G0 = 0.5 * (G0 + G0.T)
+
+        # add G0 as the value to a dictionary with key the number of ions and this while dictionary is the value for the key the drive
+        self.driven_g_0_2_couplings[drive]= {}
+        self.driven_g_0_2_couplings[drive][num_ions]= G0
+
         return G0
 
+    # quick thing to help check against known results
     def find_largest_g0(self, num_ions, drive):
         """
         Compute g0 for `drive` and return the 6 largest |g0_ij| off-diagonal entries.

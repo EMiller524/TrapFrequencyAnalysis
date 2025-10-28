@@ -588,7 +588,7 @@ class Umin_ReqMixin:
                 r = np.linalg.norm(pos_dim[i] - pos_dim[j])
                 if r < 1e-12:
                     r = 1e-8
-                    print("Warning: distance too small, setting to 1e-8")
+                    # print("Warning: distance too small, setting to 1e-8")
                 U_coulomb += 1.0 / r  # dimensionless
 
         # print("U_trap_scaled:", U_trap_scaled)
@@ -684,16 +684,16 @@ class Umin_ReqMixin:
         # print("Function evaluations:", result.nfev)
         # print("Max |grad| component:", np.max(np.abs(result.jac)))
         # print(" * * * * * * * * * * * * * * * * * * * * * * *")
-        if not result.success:
-            print(
-                "Minimization failed * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *:",
-                result.message,
-            )
-            # print(result)
-        else:
-            pass
-            # print("Minimization successful!")
-            # print("Final potential energy:", result.fun)
+        # if not result.success:
+        #     print(
+        #         "Minimization failed * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *:",
+        #         result.message,
+        #     )
+        #     print(result)
+        # else:
+        #     pass
+        #     print("Minimization successful!")
+        #     print("Final potential energy:", result.fun)
 
         # return just the minimized positions
         return result.x.reshape((num_ions, 3)), result.fun
@@ -702,7 +702,7 @@ class Umin_ReqMixin:
     def find_U_minimum_robust(self, num_ions):
         init_guess = constants.ion_locations_intial_guess[num_ions]
         init_guess = np.array(init_guess).flatten()
-        print("Initial guess for ion positions:", init_guess)
+        # print("Initial guess for ion positions:", init_guess)
         # U_test = self.get_U_using_polyfit_dimensionless(init_guess)
         U_min = np.inf
         U_eq = None
@@ -724,11 +724,11 @@ class Umin_ReqMixin:
             eq_dimless = self.find_U_minimum_robust(num_ions)      # shape (n,3), unitless
             eq_SI = eq_dimless * constants.length_harmonic_approximation
             self.ion_equilibrium_positions[num_ions] = eq_SI
-            print("eq (m):", eq_SI)
-            print(
-                "eq / L0 (dimensionless):",
-                eq_dimless,
-            )
+            # print("eq (m):", eq_SI)
+            # print(
+            #     "eq / L0 (dimensionless):",
+            #     eq_dimless,
+            # )
 # #### POSIBLY UNUSED OR OLD ############################
 
 # # unused?
