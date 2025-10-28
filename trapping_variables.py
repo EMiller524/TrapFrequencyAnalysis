@@ -215,6 +215,14 @@ class Trapping_Vars:
 
     # --- New: DC-only twist and endcaps --------------------------------------
 
+    def clear_dc_modifications(self) -> None:
+        """Clear any DC modifications (twist, endcaps) by resetting all DC amplitudes to zero."""
+        ea = self.Var_dict[self.dc_key]
+        for el in ea.amplitudes.keys():
+            if el.upper().startswith("DC"):
+                ea.set_amplitude_volt(el, 0.0)
+        self._update_pickoff_all()
+
     def add_twist_dc(self, twist: float) -> None:
         """
         Apply 'twist' (in volts) to DC electrodes only: subtract from every DC* electrode on the DC drive.

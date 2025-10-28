@@ -24,7 +24,8 @@ import math
 import numpy as np
 
 
-ion_mass = 2.885 * (10 ** (-25))  # kg
+ion_mass = 2.885 * (10 ** (-25))  # kg Yb+
+# ion_mass = 1.5e-26  # kg be
 ion_charge = 1.60217662 * (10 ** (-19))  # C
 epsilon_0 = 8.854187817e-12  # F/m
 
@@ -88,7 +89,7 @@ def freq_calcualtion(secondderivative):
 ion_electrode_dis = 0.00025
 
 
-max_ion_in_chain = 5
+max_ion_in_chain = 3
 
 coulomb_constant = 8.9875517873681764 * (10**9)  # N m^2 / C^2
 
@@ -181,8 +182,8 @@ for i in range(1, max_ion_in_chain + 1):
             -200e-6 / length_harmonic_approximation,
             200e-6 / length_harmonic_approximation,
         ),
-        (-1e-6 / length_harmonic_approximation, 1e-6 / length_harmonic_approximation),
-        (-1e-6 / length_harmonic_approximation, 1e-6 / length_harmonic_approximation),
+        (-5e-6 / length_harmonic_approximation, 5e-6 / length_harmonic_approximation),
+        (-5e-6 / length_harmonic_approximation, 5e-6 / length_harmonic_approximation),
     ] * (i)
 
     # make sure the initial guess is a float

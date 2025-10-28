@@ -87,9 +87,9 @@ class StaticCoupolingMixin:
         # powers_: shape (n_terms, 3), rows are exponents (px, py, pz) for each monomial column
         # coef_:    shape (n_terms,), linear regression weights for those columns
         powers = poly.powers_
-        print("****************************************************************************************")
+        # print("****************************************************************************************")
         coef = model.coef_
-        print(powers, coef)
+        # print(powers, coef)
         for c, (px, py, pz) in zip(coef, powers):
             if c == 0.0:
                 continue
@@ -285,7 +285,7 @@ class StaticCoupolingMixin:
         iu, ju = np.triu_indices(K, k=1)  # off-diagonal, upper triangle
         vals = G0[iu, ju]
         order = np.argsort(np.abs(vals))[::-1]  # by magnitude, descending
-        topk = min(6, len(order))
+        topk = min(100, len(order))
 
         out = {"drive": drive, "num_ions": num_ions, "top_pairs": []}
         for idx in order[:topk]:

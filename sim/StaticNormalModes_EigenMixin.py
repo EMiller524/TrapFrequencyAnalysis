@@ -43,7 +43,7 @@ class StaticNormalModes_EigenMixin:
         sorted_eigvecs = eigvecs[:, indices]
         self.ion_eigenvectors[num_ions] = sorted_eigvecs
         self.ion_eigenvalues[num_ions] = sorted_eigvals
-        print("stored", num_ions)
+        # print("stored", num_ions)
         return sorted_eigvals, sorted_eigvecs
 
     def _ensure_modes(self, num_ions: int):
@@ -83,7 +83,7 @@ class StaticNormalModes_EigenMixin:
             nrm = np.linalg.norm(col)
             if nrm > 0.0:
                 V[:, j] = col / nrm
-        print(V)
+        # print(V)
         return V
 
 

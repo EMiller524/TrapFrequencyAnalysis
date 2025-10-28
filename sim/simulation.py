@@ -33,7 +33,15 @@ from sim.simulation_ploting import sim_ploting
 from sim.simulation_fitting import sim_normalfitting
 
 
-class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMixin, VoltageInterfaceMixin, VoltageFitsMixin, sim_ploting, sim_normalfitting):
+class Simulation(
+    Umin_ReqMixin,
+    StaticNormalModes_EigenMixin,
+    StaticCoupolingMixin,
+    VoltageInterfaceMixin,
+    VoltageFitsMixin,
+    sim_ploting,
+    sim_normalfitting,
+):
     def __init__(self, dataset, trapVars=Trapping_Vars()):
         """
         Initialize the simulation object by making sure the data is all extracted and finding total voltages if given electodes
@@ -193,7 +201,7 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
         assert self.center_fits.get(self.trapVariables.dc_key) is not None
         for dk in self.trapVariables.get_drives():
             if dk != self.trapVariables.dc_key:
-                assert self.center_fits.get(dk) is not None    
+                assert self.center_fits.get(dk) is not None
 
         print("[smoke] finding U minimum…")
         self.find_equilib_positions()
@@ -214,12 +222,12 @@ class Simulation(Umin_ReqMixin, StaticNormalModes_EigenMixin, StaticCoupolingMix
         vals, vecs = self.get_mode_eigenvec_and_val(n_ions)
         assert len(vals) == 3 * n_ions and vecs.shape == (3 * n_ions, 3 * n_ions)
         omega = np.sqrt(abs(vals) / constants.ion_mass)
-        f_Hz = omega / (2*np.pi)
+        f_Hz = omega / (2 * np.pi)
         f_MHz = f_Hz * 1e-6
-        print("secular frequencies (MHz):", f_MHz) ### THIS IS THE CORRECT UNITS ###
-        print("")
+        # print("secular frequencies (MHz):", f_MHz)  ### THIS IS THE CORRECT UNITS ###
+        # print("")
         self.get_static_normal_modes_and_freq(n_ions)
-        print(self.normal_modes_and_frequencies)
+        # print(self.normal_modes_and_frequencies)
 
         print("[smoke] 3rd/4th derivative contractions…")
         g3 = self.get_3_wise_mode_couplings(n_ions)
@@ -849,7 +857,7 @@ def check_E_units_on_center_line(df, electrode="RF1"):
 
     vcol = f"{electrode}_V"
     ecol = f"{electrode}_Ex"
-    for c in ("x","y","z", vcol, ecol):
+    for c in ("x", "y", "z", vcol, ecol):
         if c not in df.columns:
             print(f"Missing column: {c}")
             return
@@ -860,61 +868,77 @@ def check_E_units_on_center_line(df, electrode="RF1"):
     y0 = ys[np.argmin(np.abs(ys))]
     z0 = zs[np.argmin(np.abs(zs))]
 
-    line = df[(df["y"]==y0) & (df["z"]==z0)][["x", vcol, ecol]].sort_values("x")
+    line = df[(df["y"] == y0) & (df["z"] == z0)][["x", vcol, ecol]].sort_values("x")
     line = line.drop_duplicates(subset="x")
 
     if len(line) < 5:
         print("Not enough points on the center line to check E units.")
         return
 
-    x  = line["x"].to_numpy()
-    V  = line[vcol].to_numpy()
+    x = line["x"].to_numpy()
+    V = line[vcol].to_numpy()
     Ex = line[ecol].to_numpy()
 
     # robust slope at center via linear fit (less noisy than raw gradient)
     A = np.c_[np.ones_like(x), x]
-    beta, *_ = np.linalg.lstsq(A, V, rcond=None)   # V ≈ beta0 + beta1 * x
+    beta, *_ = np.linalg.lstsq(A, V, rcond=None)  # V ≈ beta0 + beta1 * x
     dVdx_fit = beta[1]
 
     # compare signs/magnitudes
     ratio = np.median(-Ex / dVdx_fit)
     print(f"Center line: y={y0:.3e} m, z={z0:.3e} m, points={len(line)}")
-    print(f"median(-Ex / dVdx_fit) = {ratio:.3g}   (≈1 if Ex in V/m; ≈1e6 if Ex in V/µm)")
+    print(
+        f"median(-Ex / dVdx_fit) = {ratio:.3g}   (≈1 if Ex in V/m; ≈1e6 if Ex in V/µm)"
+    )
 
+
+# Idea run for each rf freq/amp pairing a search for the endcaps that gives distance between three ions to be 5um and then report the g_0 of modes 1,2 and modes 1,2 frequencyies
 
 if __name__ == "__main__":
 
     tv = Trapping_Vars()
-    rf = tv.add_driving("RF", 25500000, 0.0, {"RF1": 377.0, "RF2": 377.0})
-    tv.apply_dc_twist_endcaps(twist=0.275, endcaps=3)  # volts
+    rf = tv.add_driving("RF", 17500000, 0.0, {"RF1": 175.0, "RF2": 175.0})
+    tv.apply_dc_twist_endcaps(twist=0.275, endcaps=2.25)  # volts
 
     extradrive = tv.add_driving(
         "ExtraDrive1",
         28000,
         0.0,
         {
-            "DC1": -0.1,
-            "DC2": -.05,
+            "DC1": 0.175,
+            "DC2": 0.060,
             "DC3": 0.0,
-            "DC4": 0.05,
-            "DC5": 0.1,
-            "DC10": -0.1,
-            "DC9": -.05,
+            "DC4": -0.60,
+            "DC5": -0.175,
+            "DC10": 0.175,
+            "DC9": 0.060,
             "DC8": 0.0,
-            "DC7": 0.05,
-            "DC6": 0.1,
+            "DC7": -0.60,
+            "DC6": -0.175,
         },
     )
 
-    test_sim = Simulation("Simp58_101", tv)
+    test_sim = Simulation("NISTMock", tv)
 
     test_sim._smoke_test_new_stack(n_ions=3, poly_deg=4)
 
-    g0 = test_sim.get_g0_matrix(3,extradrive)
+    print(test_sim.ion_equilibrium_positions.get(3))
+    test_sim.get_mode_eigenvec_and_val(1)
+    test_sim.get_static_normal_modes_and_freq(1)
+    print(test_sim.normal_modes_and_frequencies.get(3))
+
+    g0 = test_sim.get_g0_matrix(3, extradrive)
     print(" ")
     print(g0)
     print(" ")
     print(test_sim.find_largest_g0(3, extradrive))
+
+    # print 1,2 g_0 and the corosponding mode vectors and frequencyies
+    print(test_sim.normal_modes_and_frequencies.get(3))
+
+    print(test_sim.ion_equilibrium_positions.get(3))
+    print(g0[1][2])
+    print(g0[2][1])
 
 
 # print("hi")
