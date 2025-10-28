@@ -83,6 +83,23 @@ class StaticCoupolingMixin:
         # einsum: i,j,k over real-space, a,b,c over modes (columns)
         C = np.einsum("ijk,ia,jb,kc->abc", T, V, V, V, optimize=True)  # J/m^3
 
+        # # --- Frequencies and mass ---
+        # freqs_Hz = np.asarray(
+        #     self.normal_modes_and_frequencies[num_ions]["frequencies_Hz"], dtype=float
+        # )  # Hz
+        # omega = 2.0 * np.pi * freqs_Hz  # rad/s
+
+        # m_SI = constants.ion_mass  # kg
+
+        # denom = (
+        #     4.0
+        #     * m_SI
+        #     * np.sqrt(omega[:, None, None] * omega[None, :, None] * omega[None, None, :])
+        # )
+
+        # g3_rad_s = C / denom
+        # g3_Hz = g3_rad_s / (2.0 * np.pi)
+
         # --- Frequencies and mass ---
         freqs_Hz = np.asarray(
             self.normal_modes_and_frequencies[num_ions]["frequencies_Hz"], dtype=float
@@ -91,13 +108,16 @@ class StaticCoupolingMixin:
 
         m_SI = constants.ion_mass  # kg
 
-        denom = (
-            4.0
-            * m_SI
-            * np.sqrt(omega[:, None, None] * omega[None, :, None] * omega[None, None, :])
+        zero_pnt_lengths_multipliers = (  np.sqrt(
+            constants.hbar**3
+            / (
+                2.0**3
+                * m_SI**3
+                * omega[:, None, None] * omega[None, :, None] * omega[None, None, :]
+            ))
         )
 
-        g3_rad_s = C / denom
+        g3_rad_s = C * zero_pnt_lengths_multipliers / (6 * constants.hbar)
         g3_Hz = g3_rad_s / (2.0 * np.pi)
 
         self.inherent_g_0_3_couplings[num_ions] = g3_Hz
@@ -143,6 +163,31 @@ class StaticCoupolingMixin:
         # einsum: i,j,k,l over real-space, a,b,c,d over modes (columns)
         D = np.einsum("ijkl,ia,jb,kc,ld->abcd", Q, V, V, V, V, optimize=True)  # J/m^4
 
+        # # --- Frequencies and mass ---
+        # freqs_Hz = np.asarray(
+        #     self.normal_modes_and_frequencies[num_ions]["frequencies_Hz"], dtype=float
+        # )  # Hz
+        # omega = 2.0 * np.pi * freqs_Hz  # rad/s
+
+        # m_SI = constants.ion_mass  # kg
+
+        # # Rate-style normalization (convention analogous to cubic case)
+        # # g4 ~ D / (8 m sqrt(ω_a ω_b ω_c ω_d))  -> rad/s
+        # denom = (
+        #     8.0
+        #     * m_SI
+        #     * np.sqrt(
+        #         omega[:, None, None, None]
+        #         * omega[None, :, None, None]
+        #         * omega[None, None, :, None]
+        #         * omega[None, None, None, :]
+        #     )
+        # )
+        # denom = np.where(denom == 0, np.finfo(float).eps, denom)
+
+        # g4_rad_s = D / denom
+        # g4_Hz = g4_rad_s / (2.0 * np.pi)
+
         # --- Frequencies and mass ---
         freqs_Hz = np.asarray(
             self.normal_modes_and_frequencies[num_ions]["frequencies_Hz"], dtype=float
@@ -151,24 +196,24 @@ class StaticCoupolingMixin:
 
         m_SI = constants.ion_mass  # kg
 
-        # Rate-style normalization (convention analogous to cubic case)
-        # g4 ~ D / (8 m sqrt(ω_a ω_b ω_c ω_d))  -> rad/s
-        denom = (
-            8.0
-            * m_SI
-            * np.sqrt(
+        # Product of four zero-point lengths:
+        # x0_a x0_b x0_c x0_d = (ħ^2 / (2^2 m^2)) * 1/sqrt(ω_a ω_b ω_c ω_d)
+        zero_pnt_lengths_multipliers = (
+            (constants.hbar**2) / ((2.0**2) * (m_SI**2))
+            * 1.0
+            / np.sqrt(
                 omega[:, None, None, None]
                 * omega[None, :, None, None]
                 * omega[None, None, :, None]
                 * omega[None, None, None, :]
             )
         )
-        denom = np.where(denom == 0, np.finfo(float).eps, denom)
 
-        g4_rad_s = D / denom
+        # Per-phonon quartic coupling (rad/s), then Hz
+        # g4 = (1/24ħ) * D * (x0_a x0_b x0_c x0_d)
+        g4_rad_s = (D * zero_pnt_lengths_multipliers) / (24.0 * constants.hbar)
         g4_Hz = g4_rad_s / (2.0 * np.pi)
-
-        # Cache
+                # Cache
         self.inherent_g_0_4_couplings[num_ions] = g4_Hz
 
         return g4_Hz

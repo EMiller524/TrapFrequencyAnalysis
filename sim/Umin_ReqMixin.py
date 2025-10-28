@@ -714,14 +714,21 @@ class Umin_ReqMixin:
         eq, u = self.find_U_minimum(num_ions, U_eq)
         return eq
 
+    def find_equilib_position_single(self, num_ions):
+        if num_ions not in self.ion_equilibrium_positions:
+            print(f"Finding Umin for {num_ions} ions")
+            eq_dimless = self.find_U_minimum_robust(num_ions)  # shape (n,3), unitless
+            eq_SI = eq_dimless * constants.length_harmonic_approximation
+            self.ion_equilibrium_positions[num_ions] = eq_SI
+
     # Used
-    def find_equilib_positions(self):
+    def find_all_equilib_positions(self):
         """
         Finds the Umin for all ions.
         """
         for num_ions in range(1, constants.max_ion_in_chain + 1):
             print(f"Finding Umin for {num_ions} ions")
-            eq_dimless = self.find_U_minimum_robust(num_ions)      # shape (n,3), unitless
+            eq_dimless = self.find_U_minimum_robust(num_ions)  # shape (n,3), unitless
             eq_SI = eq_dimless * constants.length_harmonic_approximation
             self.ion_equilibrium_positions[num_ions] = eq_SI
             # print("eq (m):", eq_SI)
@@ -729,6 +736,8 @@ class Umin_ReqMixin:
             #     "eq / L0 (dimensionless):",
             #     eq_dimless,
             # )
+
+
 # #### POSIBLY UNUSED OR OLD ############################
 
 # # unused?

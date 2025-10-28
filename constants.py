@@ -88,8 +88,9 @@ def freq_calcualtion(secondderivative):
 
 ion_electrode_dis = 0.00025
 
+hbar = 1.0545718e-34  # J*s
 
-max_ion_in_chain = 3
+max_ion_in_chain = 10
 
 coulomb_constant = 8.9875517873681764 * (10**9)  # N m^2 / C^2
 

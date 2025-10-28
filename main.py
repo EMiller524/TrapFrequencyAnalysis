@@ -1,6 +1,7 @@
 """
 Run code here
 """
+
 print("Running main.py")
 # Goal for single frequency analysis, given:
 # - elec variables with the rf blades having the only nonzero (and equal) modualtion
@@ -51,13 +52,13 @@ test_sim = Simulation(
     "Simp58_101", evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 5)
 )
 newparams = evars.get_electrodvars_w_twist(377, 25500000 * 2 * math.pi, 0, 5)
-newparams.set_DCoffset("DC1", 5 )
+newparams.set_DCoffset("DC1", 5)
 newparams.set_DCoffset("DC2", 0)
 newparams.set_DCoffset("DC3", 0)
 newparams.set_DCoffset("DC4", 0)
 newparams.set_DCoffset("DC5", 5 + 0)
 
-newparams.set_DCoffset("DC6", 5 + 0 )
+newparams.set_DCoffset("DC6", 5 + 0)
 newparams.set_DCoffset("DC7", 0)
 newparams.set_DCoffset("DC8", 0)
 newparams.set_DCoffset("DC9", 0)
@@ -71,12 +72,12 @@ time2 = time.time()
 test_sim.evaluate_center_poly(0, 0, 0)
 print("starting")
 time3 = time.time()
-test_sim.find_equilib_positions()
+test_sim.find_all_equilib_positions()
 res = test_sim.ion_equilibrium_positions
 print("Equilibrium positions: ", res)
 print("stoping")
 
-time4 = time.time() 
+time4 = time.time()
 hessian = test_sim.get_eq_U_hessian(5)
 third_tensor = test_sim.get_eq_3rd_der_tensor(5)
 fourth_tensor = test_sim.get_eq_4th_der_tensor(5)
@@ -89,8 +90,15 @@ max_coupling = float(np.max(np.abs(vals)))  # maximum absolute value
 print("Max coupling: ", max_coupling)
 # print(three_wise_coupolings)
 time6 = time.time()
-print("Time taken: ", time2 - time1, time3 - time2, time4 - time3, time5 - time4, time6 - time5)
-print("Total time: ", time6 - time1 )
+print(
+    "Time taken: ",
+    time2 - time1,
+    time3 - time2,
+    time4 - time3,
+    time5 - time4,
+    time6 - time5,
+)
+print("Total time: ", time6 - time1)
 # for num_ions in range(5, 5 + 1):
 #     # Get equilibrium positions
 

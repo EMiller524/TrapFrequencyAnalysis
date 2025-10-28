@@ -202,7 +202,7 @@ class Simulation(
                 assert self.center_fits.get(dk) is not None
 
         print("[smoke] finding U minimum…")
-        self.find_equilib_positions()
+        self.find_equilib_position_single(num_ions=n_ions)
         eq_pos = self.ion_equilibrium_positions.get(n_ions)
         # print(self.ion_equilibrium_positions.get(1))
         # print("")
@@ -893,10 +893,12 @@ def check_E_units_on_center_line(df, electrode="RF1"):
 # Idea run for each rf freq/amp pairing a search for the endcaps that gives distance between three ions to be 5um and then report the g_0 of modes 1,2 and modes 1,2 frequencyies
 
 if __name__ == "__main__":
+    timestart = time.time()
 
     tv = Trapping_Vars()
-    rf = tv.add_driving("RF", 17500000, 0.0, {"RF1": 175.0, "RF2": 175.0})
-    tv.apply_dc_twist_endcaps(twist=0.275, endcaps=2.25)  # volts
+    rf = tv.add_driving("RF", 25500000, 0.0, {"RF1": 377.0, "RF2": 377.0})
+    tv.apply_dc_twist_endcaps(twist=0.275, endcaps=3)  # volts
+    # tv.set_amp(tv.dc_key, "DC4", 1)
 
     extradrive = tv.add_driving(
         "ExtraDrive1",
@@ -916,79 +918,122 @@ if __name__ == "__main__":
         },
     )
 
+    # test_sim = Simulation("Hyper_2", tv)
+    # test_sim = Simulation("NISTMock", tv)
     test_sim = Simulation("Simp58_101", tv)
 
-    test_sim._smoke_test_new_stack(n_ions=3, poly_deg=4)
+    numionss = 3
+    test_sim._smoke_test_new_stack(n_ions=numionss, poly_deg=4)
 
-    print(test_sim.ion_equilibrium_positions.get(3))
-    test_sim.get_mode_eigenvec_and_val(1)
-    test_sim.get_static_normal_modes_and_freq(1)
-    print(test_sim.normal_modes_and_frequencies.get(3))
+    print(test_sim.ion_equilibrium_positions.get(numionss))
+    test_sim.get_mode_eigenvec_and_val(numionss)
+    test_sim.get_static_normal_modes_and_freq(numionss)
+    print(test_sim.normal_modes_and_frequencies.get(numionss))
 
-    g0 = test_sim.get_g0_matrix(3, extradrive)
+    g0 = test_sim.get_g0_matrix(numionss, extradrive)
     print(" ")
     print(g0)
     print(" ")
-    print(test_sim.find_largest_g0(3, extradrive))
+    print(test_sim.find_largest_g0(numionss, extradrive))
 
     # print 1,2 g_0 and the corosponding mode vectors and frequencyies
-    print(test_sim.normal_modes_and_frequencies.get(3))
+    print(test_sim.normal_modes_and_frequencies.get(numionss))
 
-    print(test_sim.ion_equilibrium_positions.get(3))
+    print(test_sim.ion_equilibrium_positions.get(numionss))
     print(g0[1][2])
     print(g0[2][1])
 
     print(" hi hi hi hi hi hi hi ")
-    test_sim.get_3_wise_mode_couplingss(3)
-    test_sim.get_4_wise_mode_couplingss(3)
+    test_sim.get_3_wise_mode_couplingss(numionss)
+    test_sim.get_4_wise_mode_couplingss(numionss)
 
     print(test_sim.inherent_g_0_3_couplings)
     print("")
-    print( "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh" )
+    print("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh")
     print("")
     print(test_sim.inherent_g_0_4_couplings)
 
     np.set_printoptions(suppress=True, linewidth=200, threshold=10**8)
 
     def _as_array(x):
+        import numpy as np
+
         if isinstance(x, np.ndarray):
             return x
         if isinstance(x, dict):
-            # try common wrappers
-            for key in ("g3_Hz", "g4_Hz"):
+            print("hi")
+            # common wrappers
+            for key in ("g3_Hz", "g4_Hz", "g3_rad_s", "g4_rad_s"):
                 if key in x and isinstance(x[key], np.ndarray):
                     return x[key]
-            # try num_ions key
-            for k, v in x.items():
+            # first ndarray value
+            for v in x.values():
                 if isinstance(v, np.ndarray):
                     return v
         return np.asarray(x)
 
     def _stats(name, A):
-        A = np.ravel(np.abs(np.asarray(A)))
+        import numpy as np
+
+        A = np.ravel(np.abs(_as_array(A))).astype(float)
         A = A[np.isfinite(A)]
         if A.size == 0:
             print(f"{name}: no finite data")
             return
+
+        mean = float(np.mean(A))
+        median = float(np.median(A))
+        q1 = float(np.percentile(A, 25))
+        q3 = float(np.percentile(A, 75))
+        std = float(np.std(A, ddof=0))
+
+        # magnitude buckets (>=1): [1,10), [10,100), [100,1e3), [1e3,1e4), [1e4, +inf)
+        b_n2 = int(np.sum(A < 0.01))
+        b_n1 = int(np.sum((A >= 0.01) & (A < 0.1)))
+        b_0 = int(np.sum((A >= 0.1) & (A < 1)))
+        b1 = int(np.sum((A >= 1) & (A < 10)))
+        b2 = int(np.sum((A >= 10) & (A < 100)))
+        b3 = int(np.sum((A >= 100) & (A < 1000)))
+        b4 = int(np.sum((A >= 1000) & (A < 10000)))
+        b5 = int(np.sum(A >= 10000))
+
         print(
-            f"{name}: count={A.size}, mean={A.mean():.3e}, median={np.median(A):.3e}, "
-            f"Q1={np.percentile(A,25):.3e}, Q3={np.percentile(A,75):.3e}, std={A.std():.3e}"
+            f"{name}: count={A.size}, mean={mean:.3e}, median={median:.3e}, "
+            f"Q1={q1:.3e}, Q3={q3:.3e}, std={std:.3e}"
+        )
+        print(
+            f"  magnitude partitions: (inf, .01): {b_n2} [.01, .1): {b_n1} [.1, 1): {b_0} [1,10): {b1}, [10,100): {b2}, [100,1e3): {b3}, "
+            f"[1e3,1e4): {b4}, [1e4,+): {b5}, "
         )
 
     # 3-wise
-    G3 = _as_array(test_sim.inherent_g_0_3_couplings)
+    G3 = _as_array(test_sim.inherent_g_0_3_couplings[numionss])
     print("\n=== Full 3-wise g0 tensor (Hz) ===")
     print(f"shape={getattr(G3, 'shape', None)}, dtype={getattr(G3, 'dtype', None)}")
-    print(G3)
+    # print(G3)
     _stats("g0 (3-wise) |Hz|", G3)
 
     # 4-wise
-    G4 = _as_array(test_sim.inherent_g_0_4_couplings)
+    G4 = _as_array(test_sim.inherent_g_0_4_couplings[numionss])
     print("\n=== Full 4-wise g0 tensor (Hz) ===")
     print(f"shape={getattr(G4, 'shape', None)}, dtype={getattr(G4, 'dtype', None)}")
-    print(G4)
+    # print(G4)
     _stats("g0 (4-wise) |Hz|", G4)
+
+    # driven 2-wise
+    DG2 = _as_array(test_sim.driven_g_0_2_couplings[extradrive][numionss])
+    print("\n=== Full 4-wise g0 tensor (Hz) ===")
+    print(f"shape={getattr(DG2, 'shape', None)}, dtype={getattr(DG2, 'dtype', None)}")
+    # print(DG2)
+    _stats("d0 (2-wise) |Hz|", DG2)
     _stats("g0 (3-wise) |Hz|", G3)
+    _stats("g0 (4-wise) |Hz|", G4)
+
+    print("")
+    print(test_sim.ion_equilibrium_positions.get(numionss))
+
+    timeend = time.time()
+    print(timeend-timestart)
 
 
 # find and print the avg, median, uper lower quartile mean std of the g_0 couplings for 3 and 4 wise couplings
