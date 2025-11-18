@@ -13,6 +13,7 @@ from scipy.interpolate import RBFInterpolator
 import constants
 from scipy.optimize import minimize, BFGS, basinhopping
 from itertools import combinations
+from trapping_variables import DriveKey
 
 
 class StaticCoupolingMixin:
@@ -246,7 +247,7 @@ class StaticCoupolingMixin:
         self.inherent_g_0_4_couplings[num_ions] = four_wise_couplings
         return four_wise_couplings
 
-    # ========== g0: static parametric coupling from a modulation drive ==========
+    # ========== g0: static parametric coupling from a modulation drive for two wise (based on paper) ==========
 
     # TODO Check these derivatives use paper, wrote at 1am and no paper
     def _poly_hessian_at(self, model, poly, r_xyz):
@@ -424,6 +425,171 @@ class StaticCoupolingMixin:
 
         return G0
 
+    ###### TODO make function like the ones above that driven_g_0_3_couplings ######
+
+    def _poly_third_derivative_tensor_at(self, model, poly, r_xyz):
+        """
+        Analytic 3rd-derivative tensor (3x3x3) of a 3D PolynomialFeatures+LinearRegression fit,
+        evaluated at r_xyz (meters). Returns d^3 Phi / d(x,y,z)^3 in V/m^3.
+
+        This is generic and works for both center and drive fits.
+        """
+        import numpy as np
+
+        x, y, z = float(r_xyz[0]), float(r_xyz[1]), float(r_xyz[2])
+        T = np.zeros((3, 3, 3), dtype=float)
+
+        powers = poly.powers_           # (n_terms, 3) exponent triples (px,py,pz)
+        coef   = model.coef_            # (n_terms,)
+
+        # helper: falling factorial p↓n
+        def ff(p, n):
+            if n == 0:
+                return 1.0
+            out = 1.0
+            for k in range(n):
+                out *= (p - k)
+            return out
+
+        # enumerate all monomials and all (i,j,k) derivative index combinations
+        for c, (px, py, pz) in zip(coef, powers):
+            if c == 0.0:
+                continue
+            for i in range(3):
+                for j in range(3):
+                    for k in range(3):
+                        nx = (i == 0) + (j == 0) + (k == 0)
+                        ny = (i == 1) + (j == 1) + (k == 1)
+                        nz = (i == 2) + (j == 2) + (k == 2)
+
+                        if (px >= nx) and (py >= ny) and (pz >= nz):
+                            coeff = c * ff(px, nx) * ff(py, ny) * ff(pz, nz)
+                            val = (
+                                (x ** (px - nx)) *
+                                (y ** (py - ny)) *
+                                (z ** (pz - nz))
+                            )
+                            T[i, j, k] += coeff * val
+
+        return T
+
+    def _drive_third_der_tensors_at_eq(self, num_ions, drive):
+        """
+        For a given non-DC drive, return a list/array of 3x3x3 third-derivative tensors
+        of the drive's fitted scalar potential Phi_drive evaluated at each ion equilibrium
+        position r_{n,0}. Units: V/m^3.
+        """
+        import numpy as np
+
+        if drive == self.trapVariables.dc_key:
+            raise ValueError("DC drive does not define a modulation tensor.")
+
+        # model/poly for this drive's *center* fit (same pattern used for Hessians)
+        if not hasattr(self, "center_fits") or drive not in self.center_fits:
+            raise KeyError(f"No center_fits entry for drive '{drive}'")
+
+        model, poly, _ = self.center_fits[drive]
+        r_eq = self.ion_equilibrium_positions[num_ions]  # shape (N,3)
+
+        N = r_eq.shape[0]
+        T_list = np.zeros((N, 3, 3, 3), dtype=float)
+        for n in range(N):
+            T_list[n] = self._poly_third_derivative_tensor_at(model, poly, r_eq[n])
+
+        return T_list  # (N,3,3,3) in V/m^3
+
+    def _sum_MtTM3_over_ions(self, T_list, V):
+        """
+        Contract third-derivative tensors T_list (N,3,3,3) into modal basis defined by V (3N x K),
+        grouping rows of V per ion (x,y,z) blocks. Returns a symmetric (K x K x K) tensor C.
+
+        C_{abc} = sum_n sum_{i,j,k in {x,y,z}} T_n[i,j,k] * M_n[i,a] * M_n[j,b] * M_n[k,c]
+        """
+        import numpy as np
+
+        N = T_list.shape[0]
+        K = V.shape[1]
+        # Build (N,3,K) block matrix of mode shapes per ion
+        M = np.empty((N, 3, K), dtype=float)
+        for n in range(N):
+            M[n, :, :] = V[3*n:3*n+3, :]
+
+        # Contract over ions and Cartesian indices
+        C = np.einsum('nijk,nia,njb,nkc->abc', T_list, M, M, M, optimize=True)
+
+        # Numerical symmetrization over all permutations of indices (a,b,c)
+        Csym = (
+            C
+            + C.transpose(1, 0, 2)
+            + C.transpose(2, 1, 0)
+            + C.transpose(0, 2, 1)
+            + C.transpose(1, 2, 0)
+            + C.transpose(2, 0, 1)
+        ) / 6.0
+        return Csym  # V/m^3 in modal basis
+
+    def get_driven_g_0_3_tensor(self, num_ions, drive):
+        """
+        Build the driven 3-wise (cubic) parametric coupling tensor g0^{(3)} for a given drive.
+
+        Definition (per-phonon, angular frequency units):
+            g0_{abc} = [ q / (6 ħ) ] * C_{abc} * (x0_a x0_b x0_c),
+
+        where
+            - C_{abc} = sum_n ξ_{n,a}^T (∇^3 Phi_drive)(r_{n,0}) [ξ_{n,b}, ξ_{n,c}]
+            is the modal contraction of the *voltage* 3rd-derivative tensor (V/m^3),
+            - x0_a = sqrt(ħ / (2 m ω_a)) is the zero-point length of mode a.
+
+        We return g0 in Hz (divide by 2π), and cache at:
+            self.driven_g_0_3_couplings[drive][num_ions] -> (K x K x K) tensor
+        """
+        import numpy as np
+
+        if drive == self.trapVariables.dc_key:
+            raise ValueError("DC drive is not a modulation drive for g0^{(3)}.")
+
+        # Ensure modes/frequencies are in cache (normalized columns; freqs in Hz)
+        if (not hasattr(self, "normal_modes_and_frequencies")) or (
+            num_ions not in self.normal_modes_and_frequencies
+        ):
+            self.get_static_normal_modes_and_freq(num_ions, normalize=True, sort_by_freq=True)
+
+        entry  = self.normal_modes_and_frequencies[num_ions]
+        V      = entry["modes"]                       # (3N x K)
+        f_Hz   = np.asarray(entry["frequencies_Hz"], dtype=float)  # (K,)
+        omega  = 2.0 * np.pi * f_Hz                   # (K,) rad/s
+
+        # Drive 3rd-derivative tensors (V/m^3) at each ion
+        T_list = self._drive_third_der_tensors_at_eq(num_ions, drive)  # (N,3,3,3)
+
+        # Modal contraction (still in V/m^3)
+        C = self._sum_MtTM3_over_ions(T_list, V)  # (K,K,K)
+
+        # Zero-point product (x0_a x0_b x0_c) = (ħ^{3/2}/(2^{3/2} m^{3/2})) * 1/sqrt(ω_a ω_b ω_c)
+        m_SI = constants.ion_mass
+        x0_prod = (
+            (constants.hbar ** 1.5) / ((2.0 ** 1.5) * (m_SI ** 1.5))
+            * 1.0 / np.sqrt(
+                omega[:, None, None]
+                * omega[None, :, None]
+                * omega[None, None, :]
+            )
+        )
+
+        # Convert voltage derivatives to energy derivatives by multiplying by charge q,
+        # then divide by (6 ħ) to get an angular frequency, finally convert to Hz.
+        g0_rad_s = (constants.ion_charge * C * x0_prod) / (6.0 * constants.hbar)
+        g0_Hz    = g0_rad_s / (2.0 * np.pi)
+
+        # Cache into self.driven_g_0_3_couplings[drive][num_ions]
+        if not hasattr(self, "driven_g_0_3_couplings"):
+            self.driven_g_0_3_couplings = {}
+        if drive not in self.driven_g_0_3_couplings:
+            self.driven_g_0_3_couplings[drive] = {}
+        self.driven_g_0_3_couplings[drive][num_ions] = g0_Hz
+
+        return g0_Hz
+
     # quick thing to help check against known results
     def find_largest_g0(self, num_ions, drive):
         """
@@ -498,47 +664,33 @@ class StaticCoupolingMixin:
         collapse=True,
     ):
         """
-        Identify resonant 2-, 3-, and 4-wise mode combinations under a 'difference' condition.
+        Identify resonant 2-, 3-, and 4-wise mode combinations.
 
-        Resonance condition (one-vs-rest pattern):
-            s · ω  ≈  target
-        where s has exactly one +1 and (order-1) -1's, ω are mode frequencies, and
-        target ∈ {0} ∪ {±Ω_d : Ω_d in drive_freqs}.
+        Intent:
+        - k=2: check *differences* ω_i ± ω_j against targets in {0} ∪ {±Ω_d}.
+        - k=3,4: check *all* ±1 linear combinations s·ω_k against the same targets.
 
         Parameters
         ----------
-        freqs : array-like of shape (M,)
-            Mode frequencies (same units as drive_freqs).
+        freqs : array-like (M,)
         orders : tuple[int], default (2,3,4)
-            Which tuple sizes to search.
         drive_freqs : array-like or None
-            Extra drive frequencies Ω_d. If None or empty, only target=0 is used.
-        tol : float or None
-            Absolute tolerance in the same units as freqs. If None, uses rel_tol * median(|freqs|).
-        rel_tol : float
-            Relative tolerance used when tol is None.
-        collapse : bool
-            If True, keep only the best (min detuning) entry per unordered index-set.
+        tol : float or None           (abs tolerance; if None uses rel_tol * median|freqs|)
+        rel_tol : float               (used only if tol is None)
+        collapse : bool               (keep best detuning per (order, indices, target))
 
         Returns
         -------
-        list[dict]
-            Each dict contains:
-                - 'order': 2|3|4
-                - 'indices': tuple of mode indices (i, j, ...) with i<j<...
-                - 'lhs_pos': int (0..order-1) position of the +1 term
-                - 'pattern': list of +1/-1 for readability
-                - 'value': float = s·ω
-                - 'target': float chosen target (0 or ±Ω_d)
-                - 'detuning': float = |s·ω - target|
-                - 'type': 'internal' (target=0) or 'driven' (target≠0)
+        list[dict] with keys:
+        'order','indices','lhs_pos','pattern','value','target','detuning','type'
         """
+        import numpy as np
+        from itertools import combinations, product
 
         freqs = np.asarray(freqs, dtype=float)
         M = freqs.size
         if M == 0:
             return []
-            print("NO FREQ GIVENNNNNN")
 
         # Resolve tolerance
         if tol is None:
@@ -556,54 +708,67 @@ class StaticCoupolingMixin:
 
         results = []
 
-        def check_tuple(idxs):
-            # For each position as the +1 (lhs), others are -1
-            local_hits = []
-            w = freqs[list(idxs)]
-            order = len(idxs)
-            for lhs_pos in range(order):
-                s = np.full(order, -1.0)
-                s[lhs_pos] = +1.0
-                val = float(np.dot(s, w))
+        def best_target_and_detuning(val: float):
+            best_t, best_det = None, None
+            for t in targets:
+                det = abs(val - t)
+                if (best_det is None) or (det < best_det):
+                    best_det, best_t = det, t
+            return best_t, best_det
 
-                # Find best target and detuning
-                best_target = None
-                best_detune = None
-                for t in targets:
-                    det = abs(val - t)
-                    if (best_detune is None) or (det < best_detune):
-                        best_detune = det
-                        best_target = t
-
-                if best_detune is not None and best_detune <= tol:
-                    local_hits.append({
-                        'order': order,
-                        'indices': tuple(idxs),   # canonical sorted
-                        'lhs_pos': lhs_pos,
-                        'pattern': [int(x) for x in s],
-                        'value': val,
-                        'target': best_target,
-                        'detuning': best_detune,
-                        'type': 'internal' if best_target == 0.0 else 'driven',
-                    })
-            return local_hits
-
-        # Enumerate combinations by order
         for k in orders:
             if k < 2 or k > 4:
                 continue
             for idxs in combinations(range(M), k):
-                results.extend(check_tuple(idxs))
+                w = freqs[list(idxs)]
+
+                if k == 2:
+                    # Differences only: (+1,-1) and (-1,+1)
+                    for lhs_pos, s in enumerate(([+1, -1], [-1, +1])):
+                        val = float(np.dot(s, w))
+                        t, det = best_target_and_detuning(val)
+                        if det is not None and det <= tol:
+                            results.append(
+                                {
+                                    "order": k,
+                                    "indices": tuple(idxs),
+                                    "lhs_pos": int(lhs_pos),  # which entry has +1
+                                    "pattern": [int(x) for x in s],
+                                    "value": val,
+                                    "target": float(t),
+                                    "detuning": float(det),
+                                    "type": "internal" if t == 0.0 else "driven",
+                                }
+                            )
+                else:
+                    # All ±1 patterns (including all + and all -)
+                    for s in product((-1, +1), repeat=k):
+                        s = np.array(s, dtype=float)
+                        val = float(np.dot(s, w))
+                        t, det = best_target_and_detuning(val)
+                        if det is not None and det <= tol:
+                            results.append(
+                                {
+                                    "order": k,
+                                    "indices": tuple(idxs),
+                                    "lhs_pos": -1,  # general pattern
+                                    "pattern": [int(x) for x in s],
+                                    "value": val,
+                                    "target": float(t),
+                                    "detuning": float(det),
+                                    "type": "internal" if t == 0.0 else "driven",
+                                }
+                            )
 
         if not collapse:
             return results
 
-        # Collapse duplicates: keep the smallest-detuning entry per unordered index set & target kind
+        # Collapse duplicates: keep best detuning per (order, indices, target)
         best = {}
         for r in results:
-            key = (r['order'], r['indices'], r['target'])
+            key = (r["order"], r["indices"], abs(r["target"]))
             cur = best.get(key)
-            if (cur is None) or (r['detuning'] < cur['detuning']):
+            if (cur is None) or (r["detuning"] < cur["detuning"]):
                 best[key] = r
 
         return list(best.values())
@@ -656,7 +821,9 @@ class StaticCoupolingMixin:
         # Choose drives if not provided: all non-DC drives present in this sim
         if drives is None:
             drives = [
-                d for d in self.trapVariables.get_drives() if getattr(d, "f_uHz", 0) != 0
+                d
+                for d in self.trapVariables.get_drives()
+                if getattr(d, "f_uHz", 0) != 0
             ]
 
         # g0 for each drive (matrix KxK, in s^-1)
@@ -740,7 +907,10 @@ class StaticCoupolingMixin:
                 if rec is None:
                     rec = {
                         "modes": pair,
-                        "freqs_Hz": (float(freqs_Hz[pair[0]]), float(freqs_Hz[pair[1]])),
+                        "freqs_Hz": (
+                            float(freqs_Hz[pair[0]]),
+                            float(freqs_Hz[pair[1]]),
+                        ),
                         "target_Hz": tgt_abs,  # 0.0 for internal, otherwise |drive|
                         "delta_Hz": float(h["delta_Hz"]),
                         "sum_Hz": float(h["sum_Hz"]),  # representative sign pattern
@@ -764,7 +934,8 @@ class StaticCoupolingMixin:
                             g0_Hz_val = float(G0_s[pair[0], pair[1]] / (2.0 * math.pi))
                             # avoid duplicate drive entries when both sign patterns hit
                             if not any(
-                                dr["drive"] is d["key"] for dr in rec["drive_resonances"]
+                                dr["drive"] is d["key"]
+                                for dr in rec["drive_resonances"]
                             ):
                                 rec["drive_resonances"].append(
                                     {
@@ -825,3 +996,99 @@ class StaticCoupolingMixin:
                 )
 
         return out
+
+    # Interface for output of finders
+
+    def get_g0_for_mode_pair(
+        self,
+        num_ions: int,
+        drive: DriveKey,
+        mode_i: int,
+        mode_j: int,
+        units: str = "Hz",
+        recompute: bool = False,
+    ) -> float:
+        """
+        Return the two-mode driven coupling g0 for a specific drive and mode pair.
+
+        Parameters
+        ----------
+        num_ions : int
+            Number of ions (defines K = 3*num_ions normal modes).
+        drive : DriveKey
+            The modulation drive whose per-volt curvature defines g0.
+            Must be a non-DC drive present in self.trapVariables.
+        mode_i, mode_j : int
+            Column indices of the normal modes (0-based, in the sorted/normalized basis
+            stored in self.normal_modes_and_frequencies[num_ions]['modes']).
+        units : {'Hz','rad/s','s^-1'}
+            Output units. Internally g0 is computed in s^-1 (i.e., rad/s).
+            If 'Hz' is requested, we divide by 2π.
+        recompute : bool
+            If True, force recomputation of the full g0 matrix for this drive & ion count.
+
+        Returns
+        -------
+        float
+            g0_{mode_i, mode_j} in requested units.
+
+        Raises
+        ------
+        ValueError / IndexError for invalid drive or mode indices.
+        """
+        import math
+        import numpy as np
+
+        # Ensure modes/frequencies are available to know K and validate indices
+        if (not hasattr(self, "normal_modes_and_frequencies")) or (
+            num_ions not in self.normal_modes_and_frequencies
+        ):
+            self.get_static_normal_modes_and_freq(
+                num_ions, normalize=True, sort_by_freq=True
+            )
+
+        modes = self.normal_modes_and_frequencies[num_ions]["modes"]
+        if modes is None or modes.ndim != 2:
+            raise RuntimeError("Normal modes not available or malformed.")
+        K = modes.shape[1]
+        if not (0 <= mode_i < K and 0 <= mode_j < K):
+            raise IndexError(
+                f"Mode indices out of range: got ({mode_i},{mode_j}) with K={K}."
+            )
+
+        # Validate drive presence and type
+        if drive == self.trapVariables.dc_key:
+            raise ValueError(
+                "DC drive is not valid for g0; choose a non-DC modulation drive."
+            )
+        if drive not in set(self.trapVariables.get_drives()):
+            raise ValueError(
+                "Specified drive is not present in this Simulation's Trapping_Vars."
+            )
+
+        # Fetch or compute the full g0 matrix (in s^-1)
+        G0_s = None
+        if (not recompute) and hasattr(self, "driven_g_0_2_couplings"):
+            if drive in self.driven_g_0_2_couplings:
+                G0_s = self.driven_g_0_2_couplings[drive].get(num_ions, None)
+
+        if (
+            G0_s is None
+            or not isinstance(G0_s, np.ndarray)
+            or G0_s.shape != (K, K)
+            or recompute
+        ):
+            G0_s = self.get_g0_matrix(
+                num_ions, drive
+            )  # computes and caches; units s^-1
+
+        val_s = float(G0_s[mode_i, mode_j])
+
+        # Unit conversion
+        u = (units or "Hz").strip().lower()
+        if u in ("hz",):
+            return val_s / (2.0 * math.pi)
+        elif u in ("rad/s", "rads", "s^-1", "1/s", "s^-1 (rad/s)"):
+            return val_s
+        else:
+            raise ValueError(f"Unrecognized units '{units}'. Use 'Hz' or 'rad/s'.")

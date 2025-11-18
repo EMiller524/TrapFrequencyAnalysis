@@ -994,6 +994,7 @@ if __name__ == "__main__":
     # print(test_sim.normal_modes_and_frequencies.get(numionss))
 
     g0 = test_sim.get_g0_matrix(numionss, extradrive)
+    g0_3 = test_sim.get_driven_g_0_3_tensor(numionss, extradrive)
     print(" ")
     # print(g0)
     print(" ")
@@ -1113,6 +1114,10 @@ if __name__ == "__main__":
     print(norm_mode_freq)
     print(" ")
     print(eq_pos)
+    print(" ")
+    print(g0_3)
+    print(" ")
+    print(g0)
 
 
 # find and print the avg, median, uper lower quartile mean std of the g_0 couplings for 3 and 4 wise couplings
