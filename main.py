@@ -84,7 +84,7 @@ fourth_tensor = test_sim.get_eq_4th_der_tensor(5)
 test_sim.get_mode_eigenvec_and_val(5)
 
 time5 = time.time()
-three_wise_coupolings = test_sim.get_3_wise_mode_couplings(5)
+three_wise_coupolings = test_sim.get_3_wise_mode_couplings_old(5)
 vals = np.array(list(three_wise_coupolings.values()), dtype=float)
 max_coupling = float(np.max(np.abs(vals)))  # maximum absolute value
 print("Max coupling: ", max_coupling)

@@ -23,6 +23,7 @@ import math
 
 import numpy as np
 
+INCLUDE_ALL_RF_PSEUDOPOTENTIALS = False  # False keeps current behavior
 
 ion_mass = 2.885 * (10 ** (-25))  # kg Yb+
 # ion_mass = 1.5e-26  # kg be

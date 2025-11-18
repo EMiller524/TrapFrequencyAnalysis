@@ -96,12 +96,14 @@ class Simulation(
         return self.trapVariables
 
     def update_total_voltage_columns(self):
+        
         """
         Build total-voltage columns:
         - 'Static_TotalV' = DC scalar potential + pseudopotential from the fastest non-DC drive
         - '<drive>_TotalV' for each non-DC drive = scalar potential from that drive only
         Uses effective amplitudes (base + pickoff) from Trapping_Vars.
         """
+        
         tv = self.trapVariables
         df = self.total_voltage_df
         electrodes = list(constants.electrode_names)
@@ -118,43 +120,102 @@ class Simulation(
                 v_dc_terms.append(f"{col_v} * {dc_map.get(el, 0.0)}")
         sum_v_dc = " + ".join(v_dc_terms) or "0"
 
+        ## In replacemnt testing 11/11/2025
         # ---------- choose fastest non-DC for pseudopotential ----------
+        # non_dc_drives = [dk for dk in tv.get_drives() if dk.f_uHz != 0]
+        # fastest = max(non_dc_drives, key=lambda dk: dk.f_uHz, default=None)
+
+        # pseudo_expr = "0"
+        # if fastest is not None:
+        #     rf_map = tv.get_drive_amplitudes(fastest)  # {electrode: volts}
+        #     ex_terms, ey_terms, ez_terms = [], [], []
+        #     for el in electrodes:
+        #         A_e = rf_map.get(el, 0.0)
+        #         if A_e == 0.0:
+        #             continue  # shrink the expression if this electrode doesn't contribute
+        #         col_ex = f"{el}_Ex"
+        #         col_ey = f"{el}_Ey"
+        #         col_ez = f"{el}_Ez"
+        #         if col_ex in df.columns:
+        #             ex_terms.append(f"{col_ex} * {A_e}")
+        #         if col_ey in df.columns:
+        #             ey_terms.append(f"{col_ey} * {A_e}")
+        #         if col_ez in df.columns:
+        #             ez_terms.append(f"{col_ez} * {A_e}")
+
+        #     sum_ex = " + ".join(ex_terms) or "0"
+        #     sum_ey = " + ".join(ey_terms) or "0"
+        #     sum_ez = " + ".join(ez_terms) or "0"
+
+        #     Omega2 = (2.0 * math.pi * fastest.f_hz) ** 2
+        #     alpha = constants.ion_charge / (
+        #         4.0 * constants.ion_mass * Omega2
+        #     )  # volts per (V/m)^2
+
+        #     pseudo_expr = f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+
+        # # final DC + pseudo
+        # df["Static_TotalV"] = ne.evaluate(
+        #     f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict
+        # )
+        
+        # ---------- RF pseudopotential(s) ----------
         non_dc_drives = [dk for dk in tv.get_drives() if dk.f_uHz != 0]
-        fastest = max(non_dc_drives, key=lambda dk: dk.f_uHz, default=None)
 
         pseudo_expr = "0"
-        if fastest is not None:
-            rf_map = tv.get_drive_amplitudes(fastest)  # {electrode: volts}
-            ex_terms, ey_terms, ez_terms = [], [], []
-            for el in electrodes:
-                A_e = rf_map.get(el, 0.0)
-                if A_e == 0.0:
-                    continue  # shrink the expression if this electrode doesn't contribute
-                col_ex = f"{el}_Ex"
-                col_ey = f"{el}_Ey"
-                col_ez = f"{el}_Ez"
-                if col_ex in df.columns:
-                    ex_terms.append(f"{col_ex} * {A_e}")
-                if col_ey in df.columns:
-                    ey_terms.append(f"{col_ey} * {A_e}")
-                if col_ez in df.columns:
-                    ez_terms.append(f"{col_ez} * {A_e}")
+        if getattr(constants, "INCLUDE_ALL_RF_PSEUDOPOTENTIALS", False):
+            # Sum pseudo from every non-DC drive:  sum_i (q/(4 m Ω_i^2)) |E_i|^2
+            pseudo_terms = []
+            for dk in non_dc_drives:
+                rf_map = tv.get_drive_amplitudes(dk)  # {electrode: volts}
 
-            sum_ex = " + ".join(ex_terms) or "0"
-            sum_ey = " + ".join(ey_terms) or "0"
-            sum_ez = " + ".join(ez_terms) or "0"
+                ex_terms, ey_terms, ez_terms = [], [], []
+                for el in electrodes:
+                    A_e = rf_map.get(el, 0.0)
+                    if A_e == 0.0:
+                        continue
+                    cx, cy, cz = f"{el}_Ex", f"{el}_Ey", f"{el}_Ez"
+                    if cx in df.columns: ex_terms.append(f"{cx} * {A_e}")
+                    if cy in df.columns: ey_terms.append(f"{cy} * {A_e}")
+                    if cz in df.columns: ez_terms.append(f"{cz} * {A_e}")
 
-            Omega2 = (2.0 * math.pi * fastest.f_hz) ** 2
-            alpha = constants.ion_charge / (
-                4.0 * constants.ion_mass * Omega2
-            )  # volts per (V/m)^2
+                sum_ex = " + ".join(ex_terms) or "0"
+                sum_ey = " + ".join(ey_terms) or "0"
+                sum_ez = " + ".join(ez_terms) or "0"
 
-            pseudo_expr = f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+                Omega2 = (2.0 * math.pi * dk.f_hz) ** 2
+                alpha = constants.ion_charge / (4.0 * constants.ion_mass * Omega2)
+                pseudo_terms.append(
+                    f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+                )
 
-        # final DC + pseudo
-        df["Static_TotalV"] = ne.evaluate(
-            f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict
-        )
+            pseudo_expr = " + ".join(pseudo_terms) or "0"
+        else:
+            # current fastest-only behavior (unchanged)
+            fastest = max(non_dc_drives, key=lambda d: d.f_uHz, default=None)
+            if fastest is not None:
+                rf_map = tv.get_drive_amplitudes(fastest)
+                ex_terms, ey_terms, ez_terms = [], [], []
+                for el in electrodes:
+                    A_e = rf_map.get(el, 0.0)
+                    if A_e == 0.0: continue
+                    cx, cy, cz = f"{el}_Ex", f"{el}_Ey", f"{el}_Ez"
+                    if cx in df.columns: ex_terms.append(f"{cx} * {A_e}")
+                    if cy in df.columns: ey_terms.append(f"{cy} * {A_e}")
+                    if cz in df.columns: ez_terms.append(f"{cz} * {A_e}")
+
+                sum_ex = " + ".join(ex_terms) or "0"
+                sum_ey = " + ".join(ey_terms) or "0"
+                sum_ez = " + ".join(ez_terms) or "0"
+
+                Omega2 = (2.0 * math.pi * fastest.f_hz) ** 2
+                alpha = constants.ion_charge / (4.0 * constants.ion_mass * Omega2)
+                pseudo_expr = f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+
+        # final DC + pseudo (unchanged)
+        df["Static_TotalV"] = ne.evaluate(f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict)
+
+        
 
         # ---------- per-drive totals (scalar only, no pseudo) ----------
 
@@ -228,13 +289,15 @@ class Simulation(
         # print(self.normal_modes_and_frequencies)
 
         print("[smoke] 3rd/4th derivative contractions…")
-        g3 = self.get_3_wise_mode_couplings(n_ions)
-        g4 = self.get_4_wise_mode_couplings(n_ions)
+        g3 = self.get_3_wise_mode_couplingss(n_ions)
+        g4 = self.get_4_wise_mode_couplingss(n_ions)
         # touch a couple entries if present
-        if (0, 0, 0) in g3:
-            _ = g3[(0, 0, 0)]
-        if (0, 0, 0, 0) in g4:
-            _ = g4[(0, 0, 0, 0)]
+        n3 = 3 * n_ions
+        assert g3.shape == (n3, n3, n3), f"Unexpected shape: {g3.shape}"
+        assert g4.shape == (n3, n3, n3, n3), f"Unexpected shape: {g4.shape}"
+        
+        assert np.allclose(g3, g3.transpose(), atol=1e-10), "g3 is not symmetric"
+        assert np.allclose(g4, g4.transpose((0, 1, 3, 2)), atol=1e-10), "g4 is not symmetric"
 
         print("[smoke] OK")
 
@@ -897,12 +960,12 @@ if __name__ == "__main__":
 
     tv = Trapping_Vars()
     rf = tv.add_driving("RF", 25500000, 0.0, {"RF1": 377.0, "RF2": 377.0})
-    tv.apply_dc_twist_endcaps(twist=0.275, endcaps=3)  # volts
+    tv.apply_dc_twist_endcaps(twist=3.275, endcaps=5)  # volts
     # tv.set_amp(tv.dc_key, "DC4", 1)
 
     extradrive = tv.add_driving(
         "ExtraDrive1",
-        28000,
+        1688700,
         0.0,
         {
             "DC1": 0.175,
@@ -925,21 +988,22 @@ if __name__ == "__main__":
     numionss = 3
     test_sim._smoke_test_new_stack(n_ions=numionss, poly_deg=4)
 
-    print(test_sim.ion_equilibrium_positions.get(numionss))
+    # print(test_sim.ion_equilibrium_positions.get(numionss))
     test_sim.get_mode_eigenvec_and_val(numionss)
-    test_sim.get_static_normal_modes_and_freq(numionss)
-    print(test_sim.normal_modes_and_frequencies.get(numionss))
+    norm_mode_freq = test_sim.get_static_normal_modes_and_freq(numionss)
+    # print(test_sim.normal_modes_and_frequencies.get(numionss))
 
     g0 = test_sim.get_g0_matrix(numionss, extradrive)
     print(" ")
-    print(g0)
+    # print(g0)
     print(" ")
-    print(test_sim.find_largest_g0(numionss, extradrive))
+    # print(test_sim.find_largest_g0(numionss, extradrive))
 
     # print 1,2 g_0 and the corosponding mode vectors and frequencyies
-    print(test_sim.normal_modes_and_frequencies.get(numionss))
+    # print(test_sim.normal_modes_and_frequencies.get(numionss))
+    eq_pos = test_sim.ion_equilibrium_positions.get(numionss)
 
-    print(test_sim.ion_equilibrium_positions.get(numionss))
+    print(eq_pos)
     print(g0[1][2])
     print(g0[2][1])
 
@@ -947,13 +1011,13 @@ if __name__ == "__main__":
     test_sim.get_3_wise_mode_couplingss(numionss)
     test_sim.get_4_wise_mode_couplingss(numionss)
 
-    print(test_sim.inherent_g_0_3_couplings)
+    # print(test_sim.inherent_g_0_3_couplings)
     print("")
     print("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh")
     print("")
-    print(test_sim.inherent_g_0_4_couplings)
+    # print(test_sim.inherent_g_0_4_couplings)
 
-    np.set_printoptions(suppress=True, linewidth=200, threshold=10**8)
+    np.set_printoptions(suppress=True, linewidth=200, threshold=10**9)
 
     def _as_array(x):
         import numpy as np
@@ -1025,15 +1089,30 @@ if __name__ == "__main__":
     print("\n=== Full 4-wise g0 tensor (Hz) ===")
     print(f"shape={getattr(DG2, 'shape', None)}, dtype={getattr(DG2, 'dtype', None)}")
     # print(DG2)
+
     _stats("d0 (2-wise) |Hz|", DG2)
+    print("hi")
     _stats("g0 (3-wise) |Hz|", G3)
+    print("hi")
     _stats("g0 (4-wise) |Hz|", G4)
 
     print("")
     print(test_sim.ion_equilibrium_positions.get(numionss))
 
     timeend = time.time()
-    print(timeend-timestart)
+    print(timeend - timestart)
+
+    out = test_sim.collect_resonant_couplings(num_ions=numionss, tol_Hz=1e3)
+    import pprint
+
+    print("\n=== Full 'out' (pprint) ===")
+    pprint.pprint(out, width=120, compact=False)
+
+    print(" normalmodes: ")
+    print(" ")
+    print(norm_mode_freq)
+    print(" ")
+    print(eq_pos)
 
 
 # find and print the avg, median, uper lower quartile mean std of the g_0 couplings for 3 and 4 wise couplings

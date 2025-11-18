@@ -12,6 +12,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import RBFInterpolator
 import constants
 from scipy.optimize import minimize, BFGS, basinhopping
+from itertools import combinations
 
 
 class StaticCoupolingMixin:
@@ -20,7 +21,7 @@ class StaticCoupolingMixin:
     """
 
     # lofok over
-    def get_3_wise_mode_couplings(self, num_ions):
+    def get_3_wise_mode_couplings_old(self, num_ions):
         """
         This will be done by contracting the 3rd derivative tensor with the eigenvectors.
         """
@@ -28,13 +29,13 @@ class StaticCoupolingMixin:
         three_wise_couplings = {}
 
         for modei in range(0, 3 * num_ions):
-            eigveci = self.ion_eigenvectors[num_ions][:,modei]
+            eigveci = self.ion_eigenvectors[num_ions][:, modei]
             coupling_i = np.tensordot(tensor, eigveci, axes=([0], [0]))
             for modej in range(modei, 3 * num_ions):
-                eigvecj = self.ion_eigenvectors[num_ions][:,modej]
+                eigvecj = self.ion_eigenvectors[num_ions][:, modej]
                 coupling_ij = np.tensordot(coupling_i, eigvecj, axes=([0], [0]))
                 for modek in range(modej, 3 * num_ions):
-                    eigveck = self.ion_eigenvectors[num_ions][:,modek]
+                    eigveck = self.ion_eigenvectors[num_ions][:, modek]
                     coupling_ijk = np.tensordot(coupling_ij, eigveck, axes=([0], [0]))
 
                     three_wise_couplings[(modei, modej, modek)] = coupling_ijk
@@ -44,10 +45,7 @@ class StaticCoupolingMixin:
 
         return three_wise_couplings
 
-    def get_3_wise_mode_couplingss(
-        self,
-        num_ions: int
-    ):
+    def get_3_wise_mode_couplingss(self, num_ions: int):
         """
         Compute cubic (3-wise) mode couplings by contracting the 3rd-derivative tensor
         with the mode eigenvectors.
@@ -108,13 +106,15 @@ class StaticCoupolingMixin:
 
         m_SI = constants.ion_mass  # kg
 
-        zero_pnt_lengths_multipliers = (  np.sqrt(
+        zero_pnt_lengths_multipliers = np.sqrt(
             constants.hbar**3
             / (
                 2.0**3
                 * m_SI**3
-                * omega[:, None, None] * omega[None, :, None] * omega[None, None, :]
-            ))
+                * omega[:, None, None]
+                * omega[None, :, None]
+                * omega[None, None, :]
+            )
         )
 
         g3_rad_s = C * zero_pnt_lengths_multipliers / (6 * constants.hbar)
@@ -124,10 +124,7 @@ class StaticCoupolingMixin:
 
         return g3_Hz
 
-    def get_4_wise_mode_couplingss(
-        self,
-        num_ions: int
-    ):
+    def get_4_wise_mode_couplingss(self, num_ions: int):
         """
         Compute quartic (4-wise) mode couplings by contracting the 4th-derivative tensor
         with the mode eigenvectors.
@@ -199,7 +196,8 @@ class StaticCoupolingMixin:
         # Product of four zero-point lengths:
         # x0_a x0_b x0_c x0_d = (ħ^2 / (2^2 m^2)) * 1/sqrt(ω_a ω_b ω_c ω_d)
         zero_pnt_lengths_multipliers = (
-            (constants.hbar**2) / ((2.0**2) * (m_SI**2))
+            (constants.hbar**2)
+            / ((2.0**2) * (m_SI**2))
             * 1.0
             / np.sqrt(
                 omega[:, None, None, None]
@@ -213,13 +211,12 @@ class StaticCoupolingMixin:
         # g4 = (1/24ħ) * D * (x0_a x0_b x0_c x0_d)
         g4_rad_s = (D * zero_pnt_lengths_multipliers) / (24.0 * constants.hbar)
         g4_Hz = g4_rad_s / (2.0 * np.pi)
-                # Cache
+        # Cache
         self.inherent_g_0_4_couplings[num_ions] = g4_Hz
 
         return g4_Hz
 
-    # look over
-    def get_4_wise_mode_couplings(self, num_ions):
+    def get_4_wise_mode_couplings_old(self, num_ions):
         """
         This will be done by contracting the 4th derivative tensor with the eigenvectors.
         """
@@ -227,16 +224,16 @@ class StaticCoupolingMixin:
         four_wise_couplings = {}
 
         for modei in range(0, 3 * num_ions):
-            eigveci = self.ion_eigenvectors[num_ions][:,modei]
+            eigveci = self.ion_eigenvectors[num_ions][:, modei]
             coupling_i = np.tensordot(tensor, eigveci, axes=([0], [0]))
             for modej in range(modei, 3 * num_ions):
-                eigvecj = self.ion_eigenvectors[num_ions][:,modej]
+                eigvecj = self.ion_eigenvectors[num_ions][:, modej]
                 coupling_ij = np.tensordot(coupling_i, eigvecj, axes=([0], [0]))
                 for modek in range(modej, 3 * num_ions):
-                    eigveck = self.ion_eigenvectors[num_ions][:,modek]
+                    eigveck = self.ion_eigenvectors[num_ions][:, modek]
                     coupling_ijk = np.tensordot(coupling_ij, eigveck, axes=([0], [0]))
                     for model in range(modek, 3 * num_ions):
-                        eigvecl = self.ion_eigenvectors[num_ions][:,model]
+                        eigvecl = self.ion_eigenvectors[num_ions][:, model]
                         coupling_ijkl = np.tensordot(
                             coupling_ijk, eigvecl, axes=([0], [0])
                         )
@@ -422,8 +419,8 @@ class StaticCoupolingMixin:
         G0 = 0.5 * (G0 + G0.T)
 
         # add G0 as the value to a dictionary with key the number of ions and this while dictionary is the value for the key the drive
-        self.driven_g_0_2_couplings[drive]= {}
-        self.driven_g_0_2_couplings[drive][num_ions]= G0
+        self.driven_g_0_2_couplings[drive] = {}
+        self.driven_g_0_2_couplings[drive][num_ions] = G0
 
         return G0
 
@@ -488,5 +485,343 @@ class StaticCoupolingMixin:
                     "mode_j": V[:, j].copy(),
                 }
             )
+
+        return out
+
+    def find_resonant_mode_combinations(
+        self,
+        freqs,
+        orders=(2, 3, 4),
+        drive_freqs=None,
+        tol=None,
+        rel_tol=1e-3,
+        collapse=True,
+    ):
+        """
+        Identify resonant 2-, 3-, and 4-wise mode combinations under a 'difference' condition.
+
+        Resonance condition (one-vs-rest pattern):
+            s · ω  ≈  target
+        where s has exactly one +1 and (order-1) -1's, ω are mode frequencies, and
+        target ∈ {0} ∪ {±Ω_d : Ω_d in drive_freqs}.
+
+        Parameters
+        ----------
+        freqs : array-like of shape (M,)
+            Mode frequencies (same units as drive_freqs).
+        orders : tuple[int], default (2,3,4)
+            Which tuple sizes to search.
+        drive_freqs : array-like or None
+            Extra drive frequencies Ω_d. If None or empty, only target=0 is used.
+        tol : float or None
+            Absolute tolerance in the same units as freqs. If None, uses rel_tol * median(|freqs|).
+        rel_tol : float
+            Relative tolerance used when tol is None.
+        collapse : bool
+            If True, keep only the best (min detuning) entry per unordered index-set.
+
+        Returns
+        -------
+        list[dict]
+            Each dict contains:
+                - 'order': 2|3|4
+                - 'indices': tuple of mode indices (i, j, ...) with i<j<...
+                - 'lhs_pos': int (0..order-1) position of the +1 term
+                - 'pattern': list of +1/-1 for readability
+                - 'value': float = s·ω
+                - 'target': float chosen target (0 or ±Ω_d)
+                - 'detuning': float = |s·ω - target|
+                - 'type': 'internal' (target=0) or 'driven' (target≠0)
+        """
+
+        freqs = np.asarray(freqs, dtype=float)
+        M = freqs.size
+        if M == 0:
+            return []
+            print("NO FREQ GIVENNNNNN")
+
+        # Resolve tolerance
+        if tol is None:
+            scale = np.median(np.abs(freqs)) if np.any(freqs) else 1.0
+            tol = max(rel_tol * scale, 0.0)
+
+        # Build target set {0} ∪ {±Ω_d}
+        drv = [] if drive_freqs is None else list(drive_freqs)
+        targets = [0.0]
+        for d in drv:
+            d = float(d)
+            if d != 0.0:
+                targets.append(+d)
+                targets.append(-d)
+
+        results = []
+
+        def check_tuple(idxs):
+            # For each position as the +1 (lhs), others are -1
+            local_hits = []
+            w = freqs[list(idxs)]
+            order = len(idxs)
+            for lhs_pos in range(order):
+                s = np.full(order, -1.0)
+                s[lhs_pos] = +1.0
+                val = float(np.dot(s, w))
+
+                # Find best target and detuning
+                best_target = None
+                best_detune = None
+                for t in targets:
+                    det = abs(val - t)
+                    if (best_detune is None) or (det < best_detune):
+                        best_detune = det
+                        best_target = t
+
+                if best_detune is not None and best_detune <= tol:
+                    local_hits.append({
+                        'order': order,
+                        'indices': tuple(idxs),   # canonical sorted
+                        'lhs_pos': lhs_pos,
+                        'pattern': [int(x) for x in s],
+                        'value': val,
+                        'target': best_target,
+                        'detuning': best_detune,
+                        'type': 'internal' if best_target == 0.0 else 'driven',
+                    })
+            return local_hits
+
+        # Enumerate combinations by order
+        for k in orders:
+            if k < 2 or k > 4:
+                continue
+            for idxs in combinations(range(M), k):
+                results.extend(check_tuple(idxs))
+
+        if not collapse:
+            return results
+
+        # Collapse duplicates: keep the smallest-detuning entry per unordered index set & target kind
+        best = {}
+        for r in results:
+            key = (r['order'], r['indices'], r['target'])
+            cur = best.get(key)
+            if (cur is None) or (r['detuning'] < cur['detuning']):
+                best[key] = r
+
+        return list(best.values())
+
+    def collect_resonant_couplings(
+        self,
+        num_ions: int,
+        tol_Hz: float,
+        orders=(2, 3, 4),
+        drives=None,  # optional: list of DriveKey; defaults to all non-DC drives
+    ):
+        """
+        Pipeline:
+        - make sure normal modes & freqs exist
+        - compute all (2,3,4)-wise couplings (easy/robust, uses your existing methods)
+        - prepare resonance targets (0 and each drive freq)
+        - call self.find_resonant_mode_combinations(...)
+        - pull just those amplitudes from the full coupling tensors and return
+
+        Returns a dict:
+        {
+            'num_ions': N,
+            'tolerance_Hz': tol_Hz,
+            'frequencies_Hz': [...],
+            'drives': [{'key': DriveKey, 'f_Hz': ...}, ...],
+            'resonances': {
+            2: [ { 'modes': (i,j), 'freqs_Hz': (fi,fj), 'signs': (+1,-1),
+                    'target_Hz': t, 'sum_Hz': S, 'delta_Hz': d,
+                    'g0_Hz_by_drive': [ {'drive': DriveKey, 'g0_Hz': val}, ... ] }, ... ],
+            3: [ { 'modes': (i,j,k), ..., 'g3_Hz': value }, ... ],
+            4: [ { 'modes': (i,j,k,l), ..., 'g4_Hz': value }, ... ],
+            }
+        }
+        """
+
+        # --- 1) Ensure modes/frequencies exist ---
+        if (
+            not hasattr(self, "normal_modes_and_frequencies")
+            or num_ions not in self.normal_modes_and_frequencies
+        ):
+            self.get_static_normal_modes_and_freq(
+                num_ions, normalize=True, sort_by_freq=True
+            )
+
+        entry = self.normal_modes_and_frequencies[num_ions]
+        freqs_Hz = np.asarray(entry["frequencies_Hz"], dtype=float)  # shape (K,)
+
+        # --- 2) Compute all couplings (already-implemented paths) ---
+        # 2-wise (g0): needs drives; 3/4-wise: inherent (static) tensors
+        # Choose drives if not provided: all non-DC drives present in this sim
+        if drives is None:
+            drives = [
+                d for d in self.trapVariables.get_drives() if getattr(d, "f_uHz", 0) != 0
+            ]
+
+        # g0 for each drive (matrix KxK, in s^-1)
+        g0_by_drive_s = {}
+        if 2 in orders and len(drives) > 0:
+            for d in drives:
+                G0_s = self.get_g0_matrix(num_ions, d)  # s^-1
+                g0_by_drive_s[d] = G0_s
+
+        # g3 (Hz): shape (K,K,K)
+        g3_Hz = None
+        if 3 in orders:
+            g3_Hz = self.get_3_wise_mode_couplingss(num_ions)
+
+        # g4 (Hz): shape (K,K,K,K)
+        g4_Hz = None
+        if 4 in orders:
+            g4_Hz = self.get_4_wise_mode_couplingss(num_ions)
+
+        # --- 3) Prepare resonance targets and call the finder ---
+        drive_list = [
+            {"key": d, "f_Hz": float(getattr(d, "f_uHz", 0) * 1e-6)} for d in drives
+        ]
+        drive_freqs = [x["f_Hz"] for x in drive_list if x["f_Hz"] != 0.0]
+
+        if not hasattr(self, "find_resonant_mode_combinations"):
+            raise AttributeError("Missing find_resonant_mode_combinations(...)")
+
+        # CALL WITH drive_freqs, and remember it returns a LIST
+        hits_list = self.find_resonant_mode_combinations(
+            freqs=freqs_Hz,
+            orders=orders,
+            drive_freqs=drive_freqs,  # <-- critical
+            tol=tol_Hz,
+            rel_tol=1e-3,
+            collapse=True,
+        )
+
+        # Group into {2:[...],3:[...],4:[...]} and rename fields you use below
+        hits = {2: [], 3: [], 4: []}
+        for r in hits_list:
+            ordk = r["order"]
+            hits[ordk].append(
+                {
+                    "idxs": r["indices"],
+                    "signs": r["pattern"],
+                    "sum_Hz": r["value"],
+                    "target_Hz": r["target"],
+                    "delta_Hz": r["detuning"],
+                    "type": r["type"],
+                    "lhs_pos": r["lhs_pos"],
+                }
+            )
+
+        # Expected structure of `hits`:
+        # {
+        #   2: [ {'idxs':(i,j), 'signs':(s1,s2), 'sum_Hz':S, 'target_Hz':t, 'delta_Hz':d}, ... ],
+        #   3: [ {'idxs':(i,j,k), 'signs':(...), 'sum_Hz':S, 'target_Hz':t, 'delta_Hz':d}, ... ],
+        #   4: [ {'idxs':(i,j,k,l), ...}, ... ],
+        # }
+
+        # --- 4) Organize the output: attach amplitudes from the full tensors ---
+        out = {
+            "num_ions": int(num_ions),
+            "tolerance_Hz": float(tol_Hz),
+            "frequencies_Hz": freqs_Hz.tolist(),
+            "drives": drive_list,
+            "resonances": {2: [], 3: [], 4: []},
+        }
+
+        # --- 4a) ORDER-2: dedup across ±target, attach only matching drives ---
+        if 2 in hits:
+            agg = {}  # key: ((i,j), target_abs_Hz) -> rec
+            for h in hits[2]:
+                i, j = h["idxs"]
+                pair = (min(i, j), max(i, j))
+                tgt_abs = 0.0 if h["target_Hz"] == 0.0 else abs(h["target_Hz"])
+                key = (pair, tgt_abs)
+
+                rec = agg.get(key)
+                if rec is None:
+                    rec = {
+                        "modes": pair,
+                        "freqs_Hz": (float(freqs_Hz[pair[0]]), float(freqs_Hz[pair[1]])),
+                        "target_Hz": tgt_abs,  # 0.0 for internal, otherwise |drive|
+                        "delta_Hz": float(h["delta_Hz"]),
+                        "sum_Hz": float(h["sum_Hz"]),  # representative sign pattern
+                        "g0_Hz": None,  # set below
+                        "drive_resonances": [],  # [{'drive':..., 'f_Hz':..., 'g0_Hz':...}, ...]
+                    }
+                    agg[key] = rec
+                else:
+                    # keep the tightest detuning; keep the sum with smallest |value|
+                    rec["delta_Hz"] = min(rec["delta_Hz"], float(h["delta_Hz"]))
+                    if abs(h["sum_Hz"]) < abs(rec["sum_Hz"]):
+                        rec["sum_Hz"] = float(h["sum_Hz"])
+
+                # If driven (target>0), attach only drives whose freq ~= |target| within tol
+                if tgt_abs > 0.0 and len(g0_by_drive_s) > 0:
+                    for d in drive_list:
+                        if abs(d["f_Hz"] - tgt_abs) <= tol_Hz:
+                            G0_s = g0_by_drive_s.get(d["key"])
+                            if G0_s is None:
+                                continue
+                            g0_Hz_val = float(G0_s[pair[0], pair[1]] / (2.0 * math.pi))
+                            # avoid duplicate drive entries when both sign patterns hit
+                            if not any(
+                                dr["drive"] is d["key"] for dr in rec["drive_resonances"]
+                            ):
+                                rec["drive_resonances"].append(
+                                    {
+                                        "drive": d["key"],
+                                        "f_Hz": d["f_Hz"],
+                                        "g0_Hz": g0_Hz_val,
+                                    }
+                                )
+
+            # Finalize records: single number if one drive, list if multiple; sort by f_Hz
+            for rec in agg.values():
+                if len(rec["drive_resonances"]) == 1:
+                    rec["g0_Hz"] = rec["drive_resonances"][0]["g0_Hz"]
+                elif len(rec["drive_resonances"]) >= 2:
+                    rec["drive_resonances"].sort(key=lambda x: x["f_Hz"])
+                    rec["g0_Hz"] = [dr["g0_Hz"] for dr in rec["drive_resonances"]]
+                out["resonances"][2].append(rec)
+
+        # order-3: single scalar amplitude from g3_Hz
+        if 3 in hits and g3_Hz is not None:
+            for h in hits[3]:
+                i, j, k = h["idxs"]
+                out["resonances"][3].append(
+                    {
+                        "modes": (int(i), int(j), int(k)),
+                        "freqs_Hz": (
+                            float(freqs_Hz[i]),
+                            float(freqs_Hz[j]),
+                            float(freqs_Hz[k]),
+                        ),
+                        "signs": tuple(int(s) for s in h["signs"]),
+                        "sum_Hz": float(h["sum_Hz"]),
+                        "target_Hz": float(h["target_Hz"]),
+                        "delta_Hz": float(h["delta_Hz"]),
+                        "g3_Hz": float(g3_Hz[i, j, k]),
+                    }
+                )
+
+        # order-4: single scalar amplitude from g4_Hz
+        if 4 in hits and g4_Hz is not None:
+            for h in hits[4]:
+                i, j, k, l = h["idxs"]
+                out["resonances"][4].append(
+                    {
+                        "modes": (int(i), int(j), int(k), int(l)),
+                        "freqs_Hz": (
+                            float(freqs_Hz[i]),
+                            float(freqs_Hz[j]),
+                            float(freqs_Hz[k]),
+                            float(freqs_Hz[l]),
+                        ),
+                        "signs": tuple(int(s) for s in h["signs"]),
+                        "sum_Hz": float(h["sum_Hz"]),
+                        "target_Hz": float(h["target_Hz"]),
+                        "delta_Hz": float(h["delta_Hz"]),
+                        "g4_Hz": float(g4_Hz[i, j, k, l]),
+                    }
+                )
 
         return out
