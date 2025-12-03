@@ -84,6 +84,9 @@ class Simulation(
         self.inherent_g_0_3_couplings = {}
         self.inherent_g_0_4_couplings = {}
 
+        self.principal_dirs = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        self.principal_dir_normalmodes_andfrequencies = {}
+
         timesimstop = time.time()
         print(
             "simulation initialized in " + str(timesimstop - timesimstart) + " seconds"
@@ -96,14 +99,13 @@ class Simulation(
         return self.trapVariables
 
     def update_total_voltage_columns(self):
-        
         """
         Build total-voltage columns:
         - 'Static_TotalV' = DC scalar potential + pseudopotential from the fastest non-DC drive
         - '<drive>_TotalV' for each non-DC drive = scalar potential from that drive only
         Uses effective amplitudes (base + pickoff) from Trapping_Vars.
         """
-        
+
         tv = self.trapVariables
         df = self.total_voltage_df
         electrodes = list(constants.electrode_names)
@@ -158,7 +160,7 @@ class Simulation(
         # df["Static_TotalV"] = ne.evaluate(
         #     f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict
         # )
-        
+
         # ---------- RF pseudopotential(s) ----------
         non_dc_drives = [dk for dk in tv.get_drives() if dk.f_uHz != 0]
 
@@ -175,9 +177,12 @@ class Simulation(
                     if A_e == 0.0:
                         continue
                     cx, cy, cz = f"{el}_Ex", f"{el}_Ey", f"{el}_Ez"
-                    if cx in df.columns: ex_terms.append(f"{cx} * {A_e}")
-                    if cy in df.columns: ey_terms.append(f"{cy} * {A_e}")
-                    if cz in df.columns: ez_terms.append(f"{cz} * {A_e}")
+                    if cx in df.columns:
+                        ex_terms.append(f"{cx} * {A_e}")
+                    if cy in df.columns:
+                        ey_terms.append(f"{cy} * {A_e}")
+                    if cz in df.columns:
+                        ez_terms.append(f"{cz} * {A_e}")
 
                 sum_ex = " + ".join(ex_terms) or "0"
                 sum_ey = " + ".join(ey_terms) or "0"
@@ -198,11 +203,15 @@ class Simulation(
                 ex_terms, ey_terms, ez_terms = [], [], []
                 for el in electrodes:
                     A_e = rf_map.get(el, 0.0)
-                    if A_e == 0.0: continue
+                    if A_e == 0.0:
+                        continue
                     cx, cy, cz = f"{el}_Ex", f"{el}_Ey", f"{el}_Ez"
-                    if cx in df.columns: ex_terms.append(f"{cx} * {A_e}")
-                    if cy in df.columns: ey_terms.append(f"{cy} * {A_e}")
-                    if cz in df.columns: ez_terms.append(f"{cz} * {A_e}")
+                    if cx in df.columns:
+                        ex_terms.append(f"{cx} * {A_e}")
+                    if cy in df.columns:
+                        ey_terms.append(f"{cy} * {A_e}")
+                    if cz in df.columns:
+                        ez_terms.append(f"{cz} * {A_e}")
 
                 sum_ex = " + ".join(ex_terms) or "0"
                 sum_ey = " + ".join(ey_terms) or "0"
@@ -210,12 +219,14 @@ class Simulation(
 
                 Omega2 = (2.0 * math.pi * fastest.f_hz) ** 2
                 alpha = constants.ion_charge / (4.0 * constants.ion_mass * Omega2)
-                pseudo_expr = f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+                pseudo_expr = (
+                    f"({alpha}) * (({sum_ex})**2 + ({sum_ey})**2 + ({sum_ez})**2)"
+                )
 
         # final DC + pseudo (unchanged)
-        df["Static_TotalV"] = ne.evaluate(f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict)
-
-        
+        df["Static_TotalV"] = ne.evaluate(
+            f"{sum_v_dc} + ({pseudo_expr})", local_dict=local_dict
+        )
 
         # ---------- per-drive totals (scalar only, no pseudo) ----------
 
@@ -295,9 +306,11 @@ class Simulation(
         n3 = 3 * n_ions
         assert g3.shape == (n3, n3, n3), f"Unexpected shape: {g3.shape}"
         assert g4.shape == (n3, n3, n3, n3), f"Unexpected shape: {g4.shape}"
-        
+
         assert np.allclose(g3, g3.transpose(), atol=1e-10), "g3 is not symmetric"
-        assert np.allclose(g4, g4.transpose((0, 1, 3, 2)), atol=1e-10), "g4 is not symmetric"
+        assert np.allclose(
+            g4, g4.transpose((0, 1, 3, 2)), atol=1e-10
+        ), "g4 is not symmetric"
 
         print("[smoke] OK")
 
@@ -985,7 +998,8 @@ if __name__ == "__main__":
     # test_sim = Simulation("NISTMock", tv)
     test_sim = Simulation("Simp58_101", tv)
 
-    numionss = 3
+    numionss = 6
+    
     test_sim._smoke_test_new_stack(n_ions=numionss, poly_deg=4)
 
     # print(test_sim.ion_equilibrium_positions.get(numionss))
@@ -1118,6 +1132,21 @@ if __name__ == "__main__":
     print(g0_3)
     print(" ")
     print(g0)
+    
+    time11 = time.time()
+    print(test_sim.compute_principal_directions_from_one_ion())
+    test_sim.populate_normalmodes_in_prinipledir_freq_labels()
+    time12 = time.time()
+    print(" ")
+    print("stuff")
+    print(" ")
+    print(test_sim.principal_dir_normalmodes_andfrequencies)
+    time13 = time.time()
+    print(" Time for principal directions: ", time12 - time11)
+    print(" Time for principledir: ", time13 - time12)
+    print(test_sim.ion_equilibrium_positions.get(numionss))
+
+    print(" End of main ")
 
 
 # find and print the avg, median, uper lower quartile mean std of the g_0 couplings for 3 and 4 wise couplings

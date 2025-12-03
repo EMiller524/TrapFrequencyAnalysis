@@ -135,6 +135,7 @@ class Trapping_Vars:
         ea.compute_pickoff(rf_amp)
 
     def _update_pickoff_all(self) -> None:
+        return
         """Recompute pickoff for all drives (run after any changes)."""
         for dk in self.Var_dict.keys():
             self._update_pickoff_for_drive(dk)
@@ -230,10 +231,10 @@ class Trapping_Vars:
         ea = self.Var_dict[self.dc_key]
         for el in ea.amplitudes.keys():
             if el.upper().startswith("DC"):
-                ea.add_amplitude_volt(el, -twist)
+                ea.add_amplitude_volt(el, twist)
         for el in ["RF1", "RF2"]:
             if el in ea.amplitudes:
-                ea.add_amplitude_volt(el, twist)
+                ea.add_amplitude_volt(el, -twist)
         self._update_pickoff_all()  # keep pickoff fresh for all freqs
 
     def add_endcaps_dc(
@@ -273,7 +274,7 @@ if __name__ == "__main__":
     rf = tv.add_driving("RF", 20e6, 0.0, {"RF1": 300.0})
     before = tv.get_drive_amplitudes(tv.dc_key)
 
-    tv.apply_dc_twist_endcaps(twist=0.2, endcaps=0.5)  # volts
+    tv.apply_dc_twist_endcaps(twist=-2, endcaps=3)  # volts
     after = tv.get_drive_amplitudes(tv.dc_key)
     print("[demo] DC before -> after (showing first few):")
     for k in list(after.keys())[:12]:

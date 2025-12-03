@@ -484,9 +484,14 @@ class StaticCoupolingMixin:
         if drive == self.trapVariables.dc_key:
             raise ValueError("DC drive does not define a modulation tensor.")
 
-        # model/poly for this drive's *center* fit (same pattern used for Hessians)
-        if not hasattr(self, "center_fits") or drive not in self.center_fits:
-            raise KeyError(f"No center_fits entry for drive '{drive}'")
+        # ensure we have a center fit for the drive; build if missing
+        if not hasattr(self, "center_fits"):
+            self.center_fits = {}
+        if drive not in self.center_fits:
+            # build (model, poly, r2) for all drives; cheap and robust
+            self.update_center_polys()
+            if drive not in self.center_fits:
+                raise ValueError(f"No center-fit available for drive {drive}.")
 
         model, poly, _ = self.center_fits[drive]
         r_eq = self.ion_equilibrium_positions[num_ions]  # shape (N,3)
@@ -578,7 +583,7 @@ class StaticCoupolingMixin:
 
         # Convert voltage derivatives to energy derivatives by multiplying by charge q,
         # then divide by (6 ħ) to get an angular frequency, finally convert to Hz.
-        g0_rad_s = (constants.ion_charge * C * x0_prod) / (6.0 * constants.hbar)
+        g0_rad_s = (constants.ion_charge * C * x0_prod) / (12.0 * constants.hbar)
         g0_Hz    = g0_rad_s / (2.0 * np.pi)
 
         # Cache into self.driven_g_0_3_couplings[drive][num_ions]

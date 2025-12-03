@@ -1,59 +1,99 @@
-# Minimal sanity check: init Simulation, add RF + one extra drive,
-# compute modes, then print g0 for a single mode pair.
+# C:\GitHub\TrapFrequencyAnalysis\BasicFinderLinearDrivenG02F110.py
+"""
+F110: Build the Jacobian for the map R^5 -> R^{C(3N,2)} that sends the five
+symmetric DC pair amplitudes (extra-drive channel) to *all* two-mode driven
+couplings g0_ab (Hz), with DC/RF/modes held fixed.
+
+We do central differences using a single Simulation that contains:
+- one center drive at 'point'
+- ±h probe drives for each of the 5 input axes
+
+Return:
+- J (M x 5) in Hz/V, where rows correspond to (i,j) with 0 <= i < j < K = 3N
+- pairs: list of (i,j) giving the row order
+- g_center: length-M vector of g0 at 'point' (Hz), same row order as J
+"""
 print("hi")
-
-import sim
-from sim.simulation import Simulation
-import trapping_variables
+import math
+import numpy as np
 import time
+
+from sim.simulation import Simulation
 from trapping_variables import Trapping_Vars
+from typing import List, Tuple
 
 
-# takes in number of ions and some point,
-def calculate_jacobian_F101(
+def _vec5_to_symmetric_dc_map(v5):
+    a1, a2, a3, a4, a5 = [float(x) for x in v5]
+    return {
+        "DC1": a1,
+        "DC10": a1,
+        "DC2": a2,
+        "DC9": a2,
+        "DC3": a3,
+        "DC8": a3,
+        "DC4": a4,
+        "DC7": a4,
+        "DC5": a5,
+        "DC6": a5,
+    }
+
+
+def _copy_tv(tv_in: Trapping_Vars) -> Trapping_Vars:
+    """Copy DC map and all non-DC drives (e.g. RF) into a fresh Trapping_Vars."""
+    tv = Trapping_Vars()
+    # DC
+    dc_in = tv_in.get_drive_amplitudes(tv_in.dc_key)
+    for el, A in dc_in.items():
+        tv.Var_dict[tv.dc_key].set_amplitude_volt(el, A)
+    tv._update_pickoff_for_drive(tv.dc_key)
+    # non-DC (RF etc.)
+    for dk in tv_in.get_drives():
+        if dk == tv_in.dc_key:
+            continue
+        amps = tv_in.get_drive_amplitudes(dk)
+        tv.add_driving(dk.label, dk.f_hz, dk.phi, amps)
+    return tv
+
+
+def _flatten_upper_triangle(G):
+    import numpy as np
+
+    K = G.shape[0]
+    vec, pairs = [], []
+    for i in range(K):
+        for j in range(i + 1, K):
+            vec.append(G[i, j])  # <-- no symmetrization
+            pairs.append((i, j))
+    return np.asarray(vec, float), pairs
+
+
+def calculate_jacobian_F110(
     num_ions: int = 3,
-    constant_trappingvars=Trapping_Vars,  # may be a Trapping_Vars instance or the class
-    point=[0.0, 0.0, 0.0, 0.0, 0.0],
-    output_g0_coupoling=(0, 1),
+    constant_trappingvars=Trapping_Vars,  # instance preferred; class allowed
+    point=[0.0, 0.0, 0.0, 0.0, 0.0],  # 5 symmetric DOFs (V): (1=10,2=9,3=8,4=7,5=6)
     simulation_preset: str = "Simp58_101",
 ):
     """
-    Compute the Jacobian (1 x 5) of F101 at 'point' via central differences using a
-    single Simulation that contains all ± step probe drives.
-
-    Inputs
-    ------
-    num_ions: int
-        Number of ions (defines K=3N).
-    constant_trappingvars:
-        Either a preconfigured Trapping_Vars instance (preferred), or the class
-        Trapping_Vars (in which case a fresh, empty instance will be created).
-        This holds the DC and RF that are to remain constant.
-    point: list[5] of float
-        The 5 symmetric DC DOFs for the extra drive: (DC1=DC10, DC2=DC9, DC3=DC8,
-        DC4=DC7, DC5=DC6), in volts.
-        If exactly [0,0,0,0,0], we use a larger step (±0.5 V); otherwise ±0.05 V.
-    output_g0_coupoling: tuple(int,int)
-        Mode indices (i,j) whose driven g0 coupling (in Hz) is the scalar output.
+    Build the full F110 Jacobian (all pair couplings vs 5 inputs) using the *pair accessor path*
+    to ensure exact agreement with F101.
 
     Returns
     -------
-    list[list[float]]
-        2D list shaped (1,5): the Jacobian row d g0[i,j]/d v_k in units of Hz/Volt.
-        Columns correspond to the 5 symmetric DC DOFs in the order above.
+    dict with:
+      - 'J_Hz_per_V' : (M x 5) array, rows in (i<j) order, units Hz/V
+      - 'pairs'      : list[(i,j)] row mapping
+      - 'g_center_Hz': (M,) array of g0 at 'point' (Hz)
+      - 'K'          : number of modes (3N)
+      - 'M'          : number of pairs (K*(K-1)//2)
     """
-    import copy
-    from sim.simulation import Simulation
-    from trapping_variables import Trapping_Vars
-
-    # --- validate / coerce inputs ---
+    # Validate inputs
     if not isinstance(point, (list, tuple)) or len(point) != 5:
         raise ValueError(
             "point must be a length-5 list/tuple of floats (symmetric DC DOFs)."
         )
-    mode_i, mode_j = map(int, output_g0_coupoling)
 
-    # Trapping_Vars: accept instance or class
+    # Accept Trapping_Vars instance or class
     if isinstance(constant_trappingvars, Trapping_Vars):
         tv_in = constant_trappingvars
     elif isinstance(constant_trappingvars, type) and issubclass(
@@ -65,484 +105,437 @@ def calculate_jacobian_F101(
             "constant_trappingvars must be a Trapping_Vars instance or the Trapping_Vars class."
         )
 
-    # --- make a clean copy so we don't mutate caller's tv ---
-    tv = Trapping_Vars()
-
-    # copy DC amplitudes
-    dc_in = tv_in.get_drive_amplitudes(tv_in.dc_key)
-    for el, A in dc_in.items():
-        tv.Var_dict[tv.dc_key].set_amplitude_volt(el, A)
-    tv._update_pickoff_for_drive(tv.dc_key)
-
-    # copy all non-DC drives (e.g., RF) exactly
-    for dk in tv_in.get_drives():
-        if dk == tv_in.dc_key:
-            continue
-        amps = tv_in.get_drive_amplitudes(dk)
-        tv.add_driving(dk.label, dk.f_hz, dk.phi, amps)
-
-    # helper: map 5-vector -> symmetric DC dict for a probe drive
-    def vec5_to_symmetric_dc_map(v5):
-        a1, a2, a3, a4, a5 = [float(x) for x in v5]
-        return {
-            "DC1": a1,
-            "DC10": a1,
-            "DC2": a2,
-            "DC9": a2,
-            "DC3": a3,
-            "DC8": a3,
-            "DC4": a4,
-            "DC7": a4,
-            "DC5": a5,
-            "DC6": a5,
-        }
-
-    label_0 = "Probe_0"
-    dk_0 =  tv.add_driving(label_0, 77.0, 0.0, vec5_to_symmetric_dc_map(point))
-
-    # choose step size
+    # Step size: larger at origin (your convention), otherwise smaller
     is_zero_point = all(abs(x) == 0.0 for x in point)
     h = 0.5 if is_zero_point else 0.05
 
-    # Build 10 probe drives (±h in each of 5 coords) with distinct frequencies
-    probe_pairs = []  # [(dk_plus, dk_minus, step), ...] length 5
-    base_f_plus = 1.0  # Hz
-    base_f_minus = 101.0  # Hz (kept distinct)
+    # Fresh TV with DC/RF copied; add center and ±h probe drives
+    tv = _copy_tv(tv_in)
+
+    dk_center = tv.add_driving(
+        "F110_center", 77.0, 0.0, _vec5_to_symmetric_dc_map(point)
+    )
+
+    probe_plus, probe_minus = [], []
     for k in range(5):
         p = list(point)
         p[k] += h
         m = list(point)
         m[k] -= h
-        label_p = f"Probe_p{k+1}"
-        label_m = f"Probe_m{k+1}"
         dk_p = tv.add_driving(
-            label_p, base_f_plus + k, 0.0, vec5_to_symmetric_dc_map(p)
+            f"F110_p{k+1}", 1.0 + k, 0.0, _vec5_to_symmetric_dc_map(p)
         )
         dk_m = tv.add_driving(
-            label_m, base_f_minus + k, 0.0, vec5_to_symmetric_dc_map(m)
+            f"F110_m{k+1}", 101.0 + k, 0.0, _vec5_to_symmetric_dc_map(m)
         )
-        probe_pairs.append((dk_p, dk_m, h))
+        probe_plus.append(dk_p)
+        probe_minus.append(dk_m)
 
-    # --- one Simulation containing all probes ---
-    # NOTE: use the preset you normally use in this repo; if you pass in a tv instance that already
-    # defines your trap, this preset string should match your environment.
-    preset_name = simulation_preset
-    sim = Simulation(preset_name, tv)
-
-    # Equilibrium and modes once (held fixed for all probes)
+    # One Simulation; lock equilibrium and modes once
+    sim = Simulation(simulation_preset, tv)
     sim.find_equilib_position_single(int(num_ions))
     sim.get_static_normal_modes_and_freq(
         int(num_ions), normalize=True, sort_by_freq=True
     )
 
-    # Optional but harmless: build all center fits (so every probe is ready)
-    sim.update_center_polys()
+    # Mode count and pair list in canonical (i<j) order
+    K = sim.normal_modes_and_frequencies[int(num_ions)]["modes"].shape[1]
+    pairs = [(i, j) for i in range(K) for j in range(i + 1, K)]
+    M = len(pairs)
 
-    g0_center = sim.get_g0_for_mode_pair(
-        num_ions, dk_0, mode_i, mode_j, units="Hz", recompute=True
-    )
-
-    # Central differences: derivative_k = [g0(p_k+) - g0(p_k-)] / (2h)
-    jac = [0.0] * 5
-    for k, (dk_p, dk_m, step) in enumerate(probe_pairs):
-        g_plus = sim.get_g0_for_mode_pair(
-            num_ions, dk_p, mode_i, mode_j, units="Hz", recompute=True
+    # Warm build for the center drive (Hz) and read center values via pair accessor
+    # (We build the matrix once to populate cache, then read per pair to mirror F101.)
+    sim.get_g0_matrix(int(num_ions), dk_center)
+    g_center = np.empty(M, dtype=float)
+    for idx, (i, j) in enumerate(pairs):
+        g_center[idx] = sim.get_g0_for_mode_pair(
+            num_ions=int(num_ions),
+            drive=dk_center,
+            mode_i=i,
+            mode_j=j,
+            units="Hz",
+            recompute=False,
         )
-        g_minus = sim.get_g0_for_mode_pair(
-            num_ions, dk_m, mode_i, mode_j, units="Hz", recompute=True
-        )
-        jac[k] = (g_plus - g_minus) / (2.0 * step)
 
-    # Second-difference (linearity) diagnostics per axis
-    residuals = []
-    for k, (dk_p, dk_m, step) in enumerate(probe_pairs):
-        g_plus  = sim.get_g0_for_mode_pair(num_ions, dk_p, mode_i, mode_j, units="Hz", recompute=False)
-        g_minus = sim.get_g0_for_mode_pair(num_ions, dk_m, mode_i, mode_j, units="Hz", recompute=False)
-        r_k = g_plus - 2.0*g0_center + g_minus     # should be ~0 if linear
-        residuals.append(r_k)
+    # Build Jacobian columns via central differences, using the *pair* accessor
+    J = np.empty((M, 5), dtype=float)
+    for k in range(5):
+        # Warm build matrices for caches (once per drive)
+        sim.get_g0_matrix(int(num_ions), probe_plus[k])
+        sim.get_g0_matrix(int(num_ions), probe_minus[k])
 
-    # Intercept check (should be ~0 if baseline is zero-coupling)
-    intercept_est = g0_center - sum(jac[k]*point[k] for k in range(5))
+        # Row k: derivative for each (i,j)
+        col = np.empty(M, dtype=float)
+        for idx, (i, j) in enumerate(pairs):
+            gp = sim.get_g0_for_mode_pair(
+                num_ions=int(num_ions),
+                drive=probe_plus[k],
+                mode_i=i,
+                mode_j=j,
+                units="Hz",
+                recompute=False,
+            )
+            gm = sim.get_g0_for_mode_pair(
+                num_ions=int(num_ions),
+                drive=probe_minus[k],
+                mode_i=i,
+                mode_j=j,
+                units="Hz",
+                recompute=False,
+            )
+            col[idx] = (gp - gm) / (2.0 * h)  # Hz / Volt
+        J[:, k] = col
 
-    # (Optional) print or return these as a side channel
-    print(f"linearity residuals (Hz): {residuals}")
-    print(f"intercept_est (Hz): {intercept_est}")
+    return {
+        "J_Hz_per_V": J,
+        "pairs": pairs,
+        "g_center_Hz": g_center,
+        "K": K,
+        "M": M,
+    }
 
-    # Return as 2D list (1 x 5), units Hz / Volt
-    return [jac]
+
+def _pair_indices(num_ions: int) -> List[Tuple[int, int]]:
+    """Return the (i,j) mode index pairs in the same order used by F110: i<j over 0..3N-1."""
+    dim = 3 * num_ions
+    pairs = []
+    for i in range(dim):
+        for j in range(i + 1, dim):
+            pairs.append((i, j))
+    return pairs
 
 
-def solve_for_target_F101(
-    target_Hz: float,
+def _rowwise_linear_max(row: np.ndarray, bounds: List[Tuple[float, float]]) -> float:
+    """
+    For linear objective g(u) = row · u with box bounds, the max is achieved
+    by taking u_j = upper if row_j >= 0 else lower.
+    """
+    total = 0.0
+    for w, (lo, hi) in zip(row, bounds):
+        total += (hi * w) if w >= 0 else (lo * w)
+    return total
+
+
+def find_max_coupling_matrix_F110(
     num_ions: int = 3,
-    constant_trappingvars=Trapping_Vars,
-    point=[0.0, 0.0, 0.0, 0.0, 0.0],
-    output_g0_coupoling=(0, 1),
+    constant_trappingvars: Trapping_Vars = Trapping_Vars,
+    point: List[float] = None,
+    input_bounds: List[Tuple[float, float]] = None,
     simulation_preset: str = "Simp58_101",
 ):
     """
-    Find a 5-vector of extra-drive voltages (symmetric DC pairs) that achieves
-    the desired two-mode coupling target_Hz for the given mode pair.
+    Maximize each pairwise coupling g0_{i,j}(u) over a 5-D box of inputs and
+    return a 3N x 3N matrix M with the upper triangle (i<j) set to the max value.
 
-    Uses the linear model g(u) = s^T u + c with:
-      s (1x5) from calculate_jacobian_F101 (Hz/Volt),
-      c inferred from g(point) - s^T point.
+    Uses g(u) = J u + c, where:
+      - J (Hz/V) and g_center (Hz) come from calculate_jacobian_F110 at 'point'
+      - c = g_center - J @ point  (vector over all pairs)
 
-    Returns the *minimum-norm* update from 'point':
-      u* = point + ((target_Hz - g(point)) / ||s||^2) * s
+    Args:
+        num_ions: N (so K=3N modes).
+        constant_trappingvars: fixed DC/RF Trapping_Vars (instance or class).
+        point: 5-vector (Volts) where the Jacobian is evaluated (default zeros).
+        input_bounds: list of 5 (lo, hi) tuples in Volts (default [(-0.5,0.5)]*5).
+        simulation_preset: Simulation preset string.
 
-    Parameters
-    ----------
-    target_Hz : float
-        Desired g0 coupling in Hz for the given mode pair.
-    num_ions : int
-        Number of ions (defines K = 3N).
-    constant_trappingvars :
-        Trapping_Vars instance (preferred) with DC/RF fixed for this config,
-        or the Trapping_Vars class (a fresh instance will be created).
-    point : list[5] of float
-        Starting 5-vector (DC1=DC10, DC2=DC9, DC3=DC8, DC4=DC7, DC5=DC6) in Volts.
-    output_g0_coupoling : tuple(int,int)
-        Mode indices (i,j) for which g0 is targeted.
-
-    Returns
-    -------
-    list[5] of float
-        The voltages (in Volts) for the five symmetric DOFs achieving target_Hz,
-        as the minimum-norm solution from 'point'.
+    Returns:
+        M: np.ndarray (K x K), upper triangle filled with per-pair maxima (Hz).
     """
-    import numpy as np
-    from sim.simulation import Simulation
-    from trapping_variables import Trapping_Vars
+    if point is None:
+        point = [0.0, 0.0, 0.0, 0.0, 0.0]
+    if input_bounds is None:
+        input_bounds = [(-0.5, 0.5)] * 5
+    if len(point) != 5:
+        raise ValueError("point must be length-5.")
+    if len(input_bounds) != 5:
+        raise ValueError("input_bounds must be 5 (lo, hi) tuples.")
 
-    # --- 1) Jacobian s (1x5) in Hz/V ---
-    J = calculate_jacobian_F101(
+    # 1) Get full F110 Jacobian & baseline at 'point'
+    out = calculate_jacobian_F110(
         num_ions=num_ions,
         constant_trappingvars=constant_trappingvars,
         point=point,
-        output_g0_coupoling=output_g0_coupoling,
         simulation_preset=simulation_preset,
-    )  # returns [[s1, s2, s3, s4, s5]]
-    s = np.asarray(J[0], dtype=float)  # shape (5,)
-
-    # Guard against degenerate sensitivity
-    norm2 = float(np.dot(s, s))
-    if norm2 == 0.0 or not np.isfinite(norm2):
-        raise RuntimeError(
-            "Jacobian has zero/invalid norm; target is not controllable with these inputs."
-        )
-
-    # --- 2) Evaluate g(point) once to infer intercept (no bounds; single drive) ---
-    # Accept instance or class for tv
-    if isinstance(constant_trappingvars, Trapping_Vars):
-        tv_in = constant_trappingvars
-    elif isinstance(constant_trappingvars, type) and issubclass(
-        constant_trappingvars, Trapping_Vars
-    ):
-        tv_in = constant_trappingvars()
-    else:
-        raise ValueError(
-            "constant_trappingvars must be a Trapping_Vars instance or the Trapping_Vars class."
-        )
-
-    # Copy tv_in (DC + all non-DC drives) and add one probe at 'point'
-    tv = Trapping_Vars()
-    # copy DC amplitudes
-    dc_in = tv_in.get_drive_amplitudes(tv_in.dc_key)
-    for el, A in dc_in.items():
-        tv.Var_dict[tv.dc_key].set_amplitude_volt(el, A)
-    tv._update_pickoff_for_drive(tv.dc_key)
-    # copy non-DC drives (e.g., RF)
-    for dk in tv_in.get_drives():
-        if dk == tv_in.dc_key:
-            continue
-        amps = tv_in.get_drive_amplitudes(dk)
-        tv.add_driving(dk.label, dk.f_hz, dk.phi, amps)
-
-    # helper to map 5-vector -> symmetric DC dict
-    def vec5_to_symmetric_dc_map(v5):
-        a1, a2, a3, a4, a5 = [float(x) for x in v5]
-        return {
-            "DC1": a1,
-            "DC10": a1,
-            "DC2": a2,
-            "DC9": a2,
-            "DC3": a3,
-            "DC8": a3,
-            "DC4": a4,
-            "DC7": a4,
-            "DC5": a5,
-            "DC6": a5,
-        }
-
-    mode_i, mode_j = map(int, output_g0_coupoling)
-
-    # one probe drive at the central point (frequency is bookkeeping only)
-    dk0 = tv.add_driving("Probe_center", 77.0, 0.0, vec5_to_symmetric_dc_map(point))
-
-    # One Simulation; modes fixed by DC+RF (extra drive is not pseudo-ized)
-    sim = Simulation("Simp58_101", tv)
-    sim.find_equilib_position_single(int(num_ions))
-    sim.get_static_normal_modes_and_freq(
-        int(num_ions), normalize=True, sort_by_freq=True
     )
+    J = out["J_Hz_per_V"]  # (M x 5) Hz/V
+    g_center = out["g_center_Hz"]  # (M,) Hz
+    pairs = out["pairs"]  # list[(i,j)]
+    K = out["K"]
+    M_pairs = out["M"]
 
-    g_center = sim.get_g0_for_mode_pair(
-        num_ions=num_ions,
-        drive=dk0,
-        mode_i=mode_i,
-        mode_j=mode_j,
-        units="Hz",
-        recompute=True,
-    )
+    # 2) Intercept vector c = g(point) - J @ point
+    point_vec = np.asarray(point, float)
+    c_vec = g_center - J @ point_vec  # (M,)
 
-    # --- 3) Minimum-norm solution from 'point' that hits target ---
-    delta = float(target_Hz) - float(g_center)
-    u_star = np.asarray(point, dtype=float) + (delta / norm2) * s
-    return u_star.tolist()
+    # 3) Row-wise box maximization of J u + c:
+    #    For each row w, choose u_k = hi if w_k >= 0 else lo.
+    lo = np.array([b[0] for b in input_bounds], float)
+    hi = np.array([b[1] for b in input_bounds], float)
+    choose = (J >= 0.0).astype(float)  # (M x 5)
+    u_star = choose * hi + (1.0 - choose) * lo  # (M x 5) row-wise optimal inputs
+    g_max_vec = (J * u_star).sum(axis=1) + c_vec  # (M,)
+
+    # 4) Fill the K x K matrix (upper triangle only)
+    Mmat = np.zeros((K, K), float)
+    if len(pairs) != M_pairs or M_pairs != J.shape[0]:
+        raise RuntimeError("Pair ordering mismatch in F110 outputs.")
+    for idx, (i, j) in enumerate(pairs):
+        Mmat[i, j] = g_max_vec[idx]
+
+    return Mmat
 
 
-def maximize_coupling_within_bounds_F101(
-    bounds=None,  # list of 5 (lo, hi) tuples in Volts
+import numpy as np
+from typing import List, Tuple, Dict
+
+
+def solve_F110_for_targets(
+    mode_pair_targets: List[Tuple[Tuple[int, int], float]],
     num_ions: int = 3,
-    constant_trappingvars=Trapping_Vars,  # instance or class
-    point=[0.0, 0.0, 0.0, 0.0, 0.0],  # reference point u0 (Volts)
-    output_g0_coupoling=(0, 1),  # (mode_i, mode_j)
-    verify_with_sim: bool = False,  # optionally evaluate g(u*) with SIM to confirm
-):
+    constant_trappingvars=Trapping_Vars,  # instance preferred; class allowed
+    point: List[float] = None,  # 5-vector (Volts); absolute inputs
+    simulation_preset: str = "Simp58_101",
+    minimize_rest: bool = False,  # try to reduce all other g0's
+    reg_l2: float = 0.0,  # optional Tikhonov on u (Volts^2); 0 = off
+    svd_tol: float = 1e-10,  # rank/NS tolerance
+) -> Dict:
     """
-    Maximize the scalar F101 output g0_{i,j}(u) over a 5-D box of input voltages.
+    Solve for inputs u ∈ R^5 so that selected pairwise couplings reach desired values,
+    using the linear F110 model: g(u) = J u + c  (Hz).
 
-    bounds : list[(lo, hi)] length 5, in Volts. If None, defaults to [(-1,1)]*5.
-    Returns dict with:
-      - 'u_max' (list[5] Volts), 'g_max_pred_Hz' (float),
-      - 'u_min', 'g_min_pred_Hz',
-      - 's_Hz_per_V' (list[5]) and 'g_at_point_Hz' (float),
-      - optionally 'g_max_verified_Hz' if verify_with_sim=True.
+    - Primary objective: hit the specified targets exactly (when feasible).
+    - Secondary (optional): minimize ||g_rest(u)||_2 without changing the achieved targets.
+
+    Returns a dict with:
+      'u_star'            : list[5] Volt
+      'achieved_Hz'       : dict{(i,j): value} for requested pairs at u_star
+      'achieved_err_Hz'   : dict{(i,j): target - achieved}
+      'rank'              : rank of constraint matrix
+      'nullspace_dim'     : dimension of the nullspace used for rest minimization
+      'pred_rest_norm_Hz' : ||g_rest(u_star)||_2
     """
-    import numpy as np
-    from sim.simulation import Simulation
-    from trapping_variables import Trapping_Vars
+    if point is None:
+        point = [0.0, 0.0, 0.0, 0.0, 0.0]
+    if len(point) != 5:
+        raise ValueError("point must be a length-5 vector (Volts).")
+    if not mode_pair_targets:
+        raise ValueError(
+            "mode_pair_targets must be a non-empty list of ((i,j), target_Hz)."
+        )
 
-    if bounds is None:
-        bounds = [(-1.0, 1.0)] * 5
-    if len(bounds) != 5:
-        raise ValueError("bounds must be a length-5 list of (lo, hi) tuples.")
-
-    # 1) Get Jacobian row s (Hz/V) at 'point' (central differences, single SIM with probes)
-    J = calculate_jacobian_F101(
+    # 1) Build F110 mapping: g(u) = J u + c
+    out = calculate_jacobian_F110(
         num_ions=num_ions,
         constant_trappingvars=constant_trappingvars,
         point=point,
-        output_g0_coupoling=output_g0_coupoling,
-    )  # [[s1, s2, s3, s4, s5]]
-    s = np.asarray(J[0], dtype=float)  # shape (5,)
+        simulation_preset=simulation_preset,
+    )
+    J = out["J_Hz_per_V"]  # (M x 5) Hz/V
+    pairs = out["pairs"]  # list[(i,j)]
+    g_point = out["g_center_Hz"]  # (M,) g(point)
+    point_vec = np.asarray(point, float)
 
-    # 2) Evaluate g(point) once to infer intercept c = g(point) - s^T point
-    # Accept instance or class for tv
-    if isinstance(constant_trappingvars, Trapping_Vars):
-        tv_in = constant_trappingvars
-    elif isinstance(constant_trappingvars, type) and issubclass(
-        constant_trappingvars, Trapping_Vars
-    ):
-        tv_in = constant_trappingvars()
+    # c = g(point) - J @ point
+    c = g_point - J @ point_vec  # (M,)
+
+    # Row index map for quick lookup
+    row_of: Dict[Tuple[int, int], int] = {p: k for k, p in enumerate(pairs)}
+
+    # 2) Build constraint system A u = b for requested pairs
+    targets = []
+    rows = []
+    for (i, j), tgt in mode_pair_targets:
+        if i > j:
+            i, j = j, i
+        if (i, j) not in row_of:
+            raise ValueError(f"Requested pair {(i,j)} is out of range.")
+        k = row_of[(i, j)]
+        rows.append(k)
+        targets.append(float(tgt))
+    A = J[rows, :]  # (m x 5)
+    b = np.asarray(targets, float) - c[rows]  # desired (J u) values
+
+    # 3) Primary solve: exact targets (when feasible) with min-norm u (and optional L2 reg)
+    # Solve (A^T A + reg I) u = A^T b  (if reg_l2>0), else use min-norm least squares.
+    m = A.shape[0]
+    if reg_l2 > 0:
+        ATA = A.T @ A + reg_l2 * np.eye(5)
+        ATb = A.T @ b
+        u0 = np.linalg.solve(ATA, ATb)  # R^5
     else:
-        raise ValueError(
-            "constant_trappingvars must be a Trapping_Vars instance or the Trapping_Vars class."
-        )
+        # min-norm LS; if A has full row-rank (m<=5), this hits targets exactly
+        u0, resid, rnk, s = np.linalg.lstsq(A, b, rcond=None)
 
-    # copy tv_in (DC + all non-DC drives), add one drive at 'point'
-    tv = Trapping_Vars()
-    dc_in = tv_in.get_drive_amplitudes(tv_in.dc_key)
-    for el, A in dc_in.items():
-        tv.Var_dict[tv.dc_key].set_amplitude_volt(el, A)
-    tv._update_pickoff_for_drive(tv.dc_key)
-    for dk in tv_in.get_drives():
-        if dk == tv_in.dc_key:
-            continue
-        amps = tv_in.get_drive_amplitudes(dk)
-        tv.add_driving(dk.label, dk.f_hz, dk.phi, amps)
+    # 4) Optional: minimize rest ||J_rest u + c_rest|| with u constrained to keep A u = b
+    u = u0.copy()
+    null_dim = 0
+    pred_rest_norm = None
+    if minimize_rest and m < 5:
+        # Nullspace of A
+        U, S, VT = np.linalg.svd(A, full_matrices=True)
+        r = np.sum(S > svd_tol)
+        null_dim = 5 - r
+        if null_dim > 0:
+            N = VT[r:, :].T  # (5 x null_dim)
+            # Rest objective: minimize ||J_rest (u0 + N z) + c_rest||_2
+            mask = np.ones(J.shape[0], dtype=bool)
+            mask[np.array(rows, int)] = False
+            J_rest = J[mask, :]  # (M-m x 5)
+            c_rest = c[mask]  # (M-m,)
+            y = J_rest @ u0 + c_rest  # (M-m,)
+            B = J_rest @ N  # (M-m x null_dim)
+            # Solve min_z ||B z + y||_2  -> z* = - B^+ y
+            if B.size > 0:
+                z_star, *_ = np.linalg.lstsq(B, -y, rcond=None)
+                u = u0 + N @ z_star  # stays feasible: A u = b
+                pred_rest_norm = float(np.linalg.norm(B @ z_star + y))
+        else:
+            pred_rest_norm = float(np.linalg.norm((J @ u + c)[mask]))
+    else:
+        # just report rest norm from u0
+        mask = np.ones(J.shape[0], dtype=bool)
+        mask[np.array(rows, int)] = False
+        pred_rest_norm = float(np.linalg.norm((J @ u + c)[mask]))
 
-    def vec5_to_symmetric_dc_map(v5):
-        a1, a2, a3, a4, a5 = [float(x) for x in v5]
-        return {
-            "DC1": a1,
-            "DC10": a1,
-            "DC2": a2,
-            "DC9": a2,
-            "DC3": a3,
-            "DC8": a3,
-            "DC4": a4,
-            "DC7": a4,
-            "DC5": a5,
-            "DC6": a5,
-        }
+    # 5) Final outputs and diagnostics
+    g_pred = J @ u + c  # all pairs (Hz)
+    achieved = {}
+    achieved_err = {}
+    for (i, j), tgt in mode_pair_targets:
+        if i > j:
+            i, j = j, i
+        k = row_of[(i, j)]
+        val = float(g_pred[k])
+        achieved[(i, j)] = val
+        achieved_err[(i, j)] = float(tgt - val)
 
-    mode_i, mode_j = map(int, output_g0_coupoling)
-    dk0 = tv.add_driving("Probe_center", 77.0, 0.0, vec5_to_symmetric_dc_map(point))
+    # Rank of A (use same tol)
+    rank = int(np.linalg.matrix_rank(A, tol=svd_tol))
 
-    sim = Simulation("Simp58_101", tv)
-    sim.find_equilib_position_single(int(num_ions))
-    sim.get_static_normal_modes_and_freq(
-        int(num_ions), normalize=True, sort_by_freq=True
-    )
-
-    g_point = sim.get_g0_for_mode_pair(
-        num_ions=num_ions,
-        drive=dk0,
-        mode_i=mode_i,
-        mode_j=mode_j,
-        units="Hz",
-        recompute=True,
-    )
-    c = float(g_point) - float(np.dot(s, np.asarray(point, dtype=float)))
-
-    # 3) Box maximization of a linear form: choose bound by sign of s_k
-    lo = np.asarray([float(b[0]) for b in bounds], dtype=float)
-    hi = np.asarray([float(b[1]) for b in bounds], dtype=float)
-    if not np.all(lo <= hi):
-        raise ValueError("Each bounds entry must satisfy lo <= hi.")
-
-    u_max = np.where(s >= 0.0, hi, lo)  # pick upper if s_k >= 0 else lower
-    u_min = np.where(s >= 0.0, lo, hi)  # opposite for min
-
-    g_max_pred = float(np.dot(s, u_max) + c)
-    g_min_pred = float(np.dot(s, u_min) + c)
-
-    out = {
-        "u_max": u_max.tolist(),
-        "g_max_pred_Hz": g_max_pred,
-        "u_min": u_min.tolist(),
-        "g_min_pred_Hz": g_min_pred,
-        "s_Hz_per_V": s.tolist(),
-        "g_at_point_Hz": float(g_point),
+    return {
+        "u_star": u.tolist(),
+        "achieved_Hz": achieved,
+        "achieved_err_Hz": achieved_err,
+        "rank": rank,
+        "nullspace_dim": null_dim,
+        "pred_rest_norm_Hz": pred_rest_norm,
     }
-
-    # 4) Optional verification by evaluating g(u_max) once
-    if verify_with_sim:
-        dk_star = tv.add_driving(
-            "Probe_u_max", 79.0, 0.0, vec5_to_symmetric_dc_map(u_max)
-        )
-        g_max_verified = sim.get_g0_for_mode_pair(
-            num_ions=num_ions,
-            drive=dk_star,
-            mode_i=mode_i,
-            mode_j=mode_j,
-            units="Hz",
-            recompute=True,
-        )
-        out["g_max_verified_Hz"] = float(g_max_verified)
-
-    return out
-
-
-# find inputs that produced a desired g0_coupling without any bounds
-# then do it with bounds
-# then find the range of possible g_0 that can be produced with bounds on the inputs
-
-# then do the same basic jacobian fucn but looking at all (3N choose 2) coupolings. Call it F110
-# now make a finder for F110, where we request a target g0 coupling matrix and it finds the inputs to produce it
-# make a finder that lets the user specify x number of coupolings to target and have the rest be as low as possible.
 
 
 def main():
-    # --- Hard-coded settings ---
+    # --- Hard-coded configuration (mirror F101 style) ---
+    time1 = time.time()
     preset = "Simp58_101"
-    num_ions = 3
-    rf_freq_hz =    25500000
+    num_ions = 4
+    rf_freq_hz = 25500000
     rf1_v = 377.0
     rf2_v = 377.0
-    extra_freq_hz = 1
-    mode_i = 0
-    mode_j = 1
+    point = [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ]  # symmetric DC pair inputs (1=10, 2=9, 3=8, 4=7, 5=6)
 
-    # Symmetric extra-drive map (pairs: 1=10, 2=9, 3=8, 4=7, 5=6)
-    extra_map = {
-        "DC1": +0.175,
-        "DC2": +0.060,
-        "DC3": 0.0,
-        "DC4": -0.60,
-        "DC5": -0.175,
-        "DC10": +0.175,
-        "DC9": +0.060,
-        "DC8": 0.0,
-        "DC7": -0.60,
-        "DC6": -0.175,
-    }
-
-    # --- Build trapping variables and drives ---
+    # Build trapping variables with RF only (extra-drive probes are added inside F110)
     tv = Trapping_Vars()
-    tv.apply_dc_twist_endcaps(twist = 0.28, endcaps= 3)
+    tv.apply_dc_twist_endcaps(twist=0.28, endcaps=3)
     tv.add_driving("RF", rf_freq_hz, 0.0, {"RF1": rf1_v, "RF2": rf2_v})
-    extra_drive = tv.add_driving("ExtraDrive1", extra_freq_hz, 0.0, extra_map)
 
-    # --- Simulation and modes ---
-    sim = Simulation(preset, tv)
-
-    sim.find_equilib_position_single(num_ions)
-
-    sim.get_static_normal_modes_and_freq(int(num_ions), normalize=True, sort_by_freq=True)
-
-    # --- Query g0 and print ---
-    g0_hz = sim.get_g0_for_mode_pair(
+    # Run F110 Jacobian builder
+    out = calculate_jacobian_F110(
         num_ions=num_ions,
-        drive=extra_drive,
-        mode_i=mode_i,
-        mode_j=mode_j,
-        units="Hz",
-        recompute=True,  # force build once for this drive/ion count
+        constant_trappingvars=tv,
+        point=point,
+        simulation_preset=preset,
     )
 
-    freqs = sim.normal_modes_and_frequencies[num_ions]["frequencies_Hz"]
-    print("=== g0 sanity ===")
+    J = out["J_Hz_per_V"]  # (M x 5)
+    pairs = out["pairs"]  # length M list of (i,j)
+    g_center = out["g_center_Hz"]  # (M,)
+    K = out["K"]
+    M = out["M"]
+
+    # --- Print a quick report ---
+    print("=== F110 sanity ===")
     print(f"Preset: {preset}")
-    print(f"N ions: {num_ions}  |  K modes: {len(freqs)}")
+    print(f"N ions: {num_ions}  |  K modes: {K}  |  M pairs: {M}")
+    print(f"Jacobian shape: {J.shape} (Hz/V)")
+    # Column norms tell you how effective each symmetric channel is
+    col_norms = (J**2).sum(axis=0) ** 0.5
+    print("Column L2 norms (Hz/V):", "  ".join(f"{n:.3e}" for n in col_norms))
+    # Baseline coupling stats at 'point'
     print(
-        f"Modes ({mode_i},{mode_j}) -> ({freqs[mode_i]:.3f} Hz, {freqs[mode_j]:.3f} Hz)"
+        f"Center g0 stats at point={point}: min={g_center.min():.3e} Hz, "
+        f"max={g_center.max():.3e} Hz, mean={g_center.mean():.3e} Hz"
     )
-    print(
-        f"Drive: {getattr(extra_drive, 'label', 'ExtraDrive1')} @ {extra_freq_hz:.1f} Hz"
-    )
-    print(f"g0 = {g0_hz:.6e} Hz")
 
-    print("hi, hi, hi")    
+    # Show first 8 rows as a spot-check
+    print("\nFirst 8 rows (pair: sensitivities [Hz/V]):")
+    show_rows = min(8, M)
+    for r in range(show_rows):
+        i, j = pairs[r]
+        sens = "  ".join(f"{x:.3e}" for x in J[r, :])
+        print(f"({i:2d},{j:2d})  {sens}")
+
+    print(out)
     time2 = time.time()
-    print("Calculating Jacobian...")
+    print("time:", time2 - time1)
+
+    maxmatrix = find_max_coupling_matrix_F110(
+        num_ions=num_ions,
+        constant_trappingvars=tv,
+        point=point,
+        input_bounds=[(-1, 1)] * 5,
+    )
+
+    print("\nMax coupling matrix (upper triangle):")
+
+    def print_bordered_matrix(matrix):
+        s = [[str(e) for e in row] for row in matrix]
+        lens = [max(map(len, col)) for col in zip(*s)]
+        fmt = ' │ '.join('{{:{}}}'.format(x) for x in lens)
+
+        # Top border
+        print('┌─' + '─┬─'.join('─' * l for l in lens) + '─┐')
+
+        for i, row in enumerate(s):
+            print('│ ' + fmt.format(*row) + ' │')
+            if i < len(s) - 1:
+                print('├─' + '─┼─'.join('─' * l for l in lens) + '─┤')
+
+        # Bottom border
+        print('└─' + '─┴─'.join('─' * l for l in lens) + '─┘')
+
+    print_bordered_matrix(maxmatrix)
+
+
+def main2():
+    # --- Hard-coded configuration (mirror F101 style) ---
+    time1 = time.time()
+    preset = "Simp58_101"
+    num_ions = 4
+    rf_freq_hz = 25500000
+    rf1_v = 377.0
+    rf2_v = 377.0
+    point = [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ]  # symmetric DC pair inputs (1=10, 2=9, 3=8, 4=7, 5=6)
+
+    # Build trapping variables with RF only (extra-drive probes are added inside F110)
     tv = Trapping_Vars()
-    tv.apply_dc_twist_endcaps(twist = 0.28, endcaps= 3)
+    tv.apply_dc_twist_endcaps(twist=0.28, endcaps=3)
     tv.add_driving("RF", rf_freq_hz, 0.0, {"RF1": rf1_v, "RF2": rf2_v})
 
-    result = solve_for_target_F101(
-        target_Hz=100.0,
-        num_ions=8,
-        constant_trappingvars=tv,
-        point=[0.0, 0.0, 0.0, 0.0, 0.0],
-        output_g0_coupoling=(0, 1),
-        simulation_preset="Simp58_101",
-    )
-    print(result)
-    time3 = time.time()
-    print("Time taken to solve: ", time3 - time2)
-
-    out1 = maximize_coupling_within_bounds_F101(
-        bounds=[(-1, 1), (-1, 1), (-1, 1), (-1, 1), (-1, 1)],
-        output_g0_coupoling=(0, 1),
-        num_ions=3,
-        constant_trappingvars=tv,
-        verify_with_sim=False,
-    )
-    out2 = maximize_coupling_within_bounds_F101(
-        bounds=[(-1, 1), (-1, 1), (-1, 1), (-1, 1), (-1, 1)],
-        output_g0_coupoling=(2, 6),
-        num_ions=3,
-        constant_trappingvars=tv,
-        verify_with_sim=False,
-    )
-    
-    print(out1)
-    print(" ")
-    print(out2)
+    vars = solve_F110_for_targets(mode_pair_targets=[((0, 1), 100.0), ((3, 5), 200.0), ((0,3), 0)], num_ions=3, constant_trappingvars=tv, minimize_rest=False)
+    print("\nF110 solve for targets:")
+    print(vars)
 
 
 if __name__ == "__main__":
-    main()
+    main2()

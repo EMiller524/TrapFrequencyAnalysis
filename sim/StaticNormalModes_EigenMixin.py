@@ -62,7 +62,6 @@ class StaticNormalModes_EigenMixin:
     # Goal save to self.normal_modes_and_frequencies a dict of num_ions: {(modes, frequencies}) with
     # {modes, frequencies} a dict with keys frequencies and modes the values being arrays
 
-
     def normalize_modes(self, num_ions: int, vecs=None):
         """
         Helper: column-normalize eigenvectors to unit L2 norm.
@@ -86,7 +85,6 @@ class StaticNormalModes_EigenMixin:
         # print(V)
         return V
 
-
     def eigenvalue_to_freq_hz(self, lam):
         """
         Helper: map eigenvalue(s) λ of the energy Hessian (J/m^2) to secular
@@ -98,7 +96,6 @@ class StaticNormalModes_EigenMixin:
         lam = np.abs(lam)  # guard tiny negative roundoff
         omega = np.sqrt(lam / constants.ion_mass)
         return omega / (2.0 * math.pi)
-
 
     def get_static_normal_modes_and_freq(self, num_ions: int,
                                      normalize: bool = True,
@@ -144,4 +141,119 @@ class StaticNormalModes_EigenMixin:
         out = {"modes": vecs, "frequencies_Hz": f_Hz}
         self.normal_modes_and_frequencies[num_ions] = out
 
+        self.populate_normalmodes_in_prinipledir_freq_labels()
+
         return out
+
+    def compute_principal_directions_from_one_ion(self):
+        """
+        Determine principal directions from the 1-ion normal modes.
+
+        Behavior:
+        - If self.normal_modes_and_frequencies lacks an entry for 1 ion, we compute it.
+        - Extract the 3 mode vectors for the single ion (columns of the (3x3) 'modes' matrix),
+        which are already sorted by increasing frequency by get_static_normal_modes_and_freq.
+        - Store them as 3 unit vectors in self.principal_dirs = [[x1,y1,z1], ...],
+        ordered lowest->highest frequency (index 0 is lowest).
+        """
+        import numpy as np
+
+        # Ensure we have a 1-ion entry
+        if (
+            1 not in self.normal_modes_and_frequencies
+        ):
+            self.get_static_normal_modes_and_freq(1)
+
+        modes_1 = self.normal_modes_and_frequencies[1][
+            "modes"
+        ]  # shape (3,3); columns = mode vectors
+        # Defensive: ensure shape is (3,3)
+        if modes_1.shape != (3, 3):
+            raise ValueError(f"Expected 3x3 modes matrix for one ion, got {modes_1.shape}")
+
+        # Columns are already sorted by freq (ascending) by get_static_normal_modes_and_freq
+        P = []
+        for j in range(3):
+            v = modes_1[:, j].astype(float)
+            nrm = np.linalg.norm(v)
+            if nrm > 0:
+                v = v / nrm
+            P.append([float(v[0]), float(v[1]), float(v[2])])
+
+        # Use the attribute name already present in Simulation.__init__
+        self.principal_dirs = P  # [[x,y,z], [..], [..]]
+        return self.principal_dirs
+
+    def populate_normalmodes_in_prinipledir_freq_labels(self):
+        """
+        Build a per-ion-count dict like self.normal_modes_and_frequencies, but with
+        eigenvectors expressed in the principal-direction basis defined by the 1-ion case.
+        Also attach a per-mode label telling which principal axis the mode aligns with most.
+
+        Produces:
+        self.normalmodes_in_prinipledir_freq_labels[num_ions] = {
+            'modes'          : (3N x 3N) ndarray  (columns are modes in principal basis),
+            'frequencies_Hz' : (3N,) ndarray,
+            'dir_alignment'  : (3N,) int ndarray with values in {0,1,2}  (0 = lowest-freq principal axis)
+        }
+
+        For compatibility with your existing naming, we also mirror into:
+        self.principal_dir_normalmodes_andfrequencies[num_ions] = { ...same content... }
+        """
+        import numpy as np
+
+        # Make sure principal directions exist
+        if self.principal_dirs == [[1,0,0],[0,1,0],[0,0,1]]:
+            self.compute_principal_directions_from_one_ion()
+
+        # Principal direction matrix P has columns = principal axes (lab components)
+        P = np.array(self.principal_dirs, dtype=float).T  # shape (3,3)
+        # Guard/renormalize columns
+        for k in range(3):
+            c = P[:, k]
+            nrm = np.linalg.norm(c)
+            if nrm > 0:
+                P[:, k] = c / nrm
+
+        # For each ion-count already computed, rotate modes blockwise (each ion's x,y,z) into the principal basis
+        for num_ions, pack in self.normal_modes_and_frequencies.items():
+            vecs_lab = np.array(
+                pack["modes"], dtype=float, copy=True
+            )  # (3N,3N), columns are modes (lab-basis)
+            freqs = np.array(pack["frequencies_Hz"], dtype=float, copy=True)  # (3N,)
+
+            # check 3N3n
+            if vecs_lab.shape != (3 * num_ions, 3 * num_ions):
+                raise ValueError(
+                    f"Expected modes shape {(3*num_ions, 3*num_ions)}; got {vecs_lab.shape}"
+                )
+
+            # Rotate each (x,y,z) block: principal_block = P^T * v_lab_block
+            vecs_principal = np.zeros_like(vecs_lab)
+            for ion in range(num_ions):
+                sl = slice(3 * ion, 3 * ion + 3)
+                vecs_principal[sl, :] = P.T @ vecs_lab[sl, :]
+
+            # For each (column), find most aligned  principal axis
+            # sum squares across ions per axis and take argmax
+            dir_alignment = np.zeros(3 * num_ions, dtype=int)
+            for j in range(3 * num_ions):
+                # block components are [x'(=axis0), y'(=axis1), z'(=axis2)] per ion
+                w = np.zeros(3)
+                for ion in range(num_ions):
+                    sl = slice(3 * ion, 3 * ion + 3)
+                    comp = vecs_principal[sl, j]
+                    w += comp * comp
+                dir_alignment[j] = int(
+                    np.argmax(w)
+                )  # 0 = lowest-freq axis)
+
+            out = {
+                "modes": vecs_principal,
+                "frequencies_Hz": freqs,
+                "dir_alignment": dir_alignment,
+            }
+
+            self.principal_dir_normalmodes_andfrequencies[num_ions] = out
+
+        return self.principal_dir_normalmodes_andfrequencies

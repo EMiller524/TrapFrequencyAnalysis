@@ -178,14 +178,17 @@ ion_locations_intial_guess[10] = [
     [2.3, 0, 0],
 ]
 
+radial_bounds = 1e-6 / length_harmonic_approximation
+axial_bounds = 200e-6 / length_harmonic_approximation
+
 for i in range(1, max_ion_in_chain + 1):
     ion_locations_bounds[i] = [
         (
-            -200e-6 / length_harmonic_approximation,
-            200e-6 / length_harmonic_approximation,
+            -axial_bounds,
+            axial_bounds,
         ),
-        (-5e-6 / length_harmonic_approximation, 5e-6 / length_harmonic_approximation),
-        (-5e-6 / length_harmonic_approximation, 5e-6 / length_harmonic_approximation),
+        (-radial_bounds, radial_bounds),
+        (-radial_bounds, radial_bounds),
     ] * (i)
 
     # make sure the initial guess is a float

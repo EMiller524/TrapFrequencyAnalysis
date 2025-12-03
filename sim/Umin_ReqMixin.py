@@ -219,6 +219,8 @@ class Umin_ReqMixin:
         return fourth_tensor
 
     def get_eq_U_hessian(self, num_ions):
+        if num_ions not in self.ion_equilibrium_positions:
+            self.find_equilib_position_single(num_ions)
         ionpositions = self.ion_equilibrium_positions[num_ions]
 
         n = len(ionpositions)
