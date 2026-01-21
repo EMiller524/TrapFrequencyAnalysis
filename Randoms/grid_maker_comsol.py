@@ -18,7 +18,7 @@ def print_numbers_separated_by_distance(x, n):
 
 
 # Example usage
-print_numbers_separated_by_distance(0.000125, 640)
+# print_numbers_separated_by_distance(0.000125, 640)
 
 # Grid 1
 # X --> print_numbers_separated_by_distance(0.01, 80)
@@ -29,3 +29,9 @@ print_numbers_separated_by_distance(0.000125, 640)
 # X --> print_numbers_separated_by_distance(0.005, 160)
 # Y --> print_numbers_separated_by_distance(0.000125, 640)
 # Z --> print_numbers_separated_by_distance(0.000125, 640)
+
+
+# 2D Grid1 in meters... gotta check with rest of code
+# print_numbers_separated_by_distance(1.5 * 10 ** (-6), 200)  # x
+# print_numbers_separated_by_distance(1.5*10**(-6), 50) # y
+print_numbers_separated_by_distance(1.5 * 10 ** (-6), 150)  # z

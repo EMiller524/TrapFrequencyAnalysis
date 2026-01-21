@@ -974,7 +974,10 @@ if __name__ == "__main__":
     tv = Trapping_Vars()
     rf = tv.add_driving("RF", 25500000, 0.0, {"RF1": 377.0, "RF2": 377.0})
     tv.apply_dc_twist_endcaps(twist=3.275, endcaps=5)  # volts
-    # tv.set_amp(tv.dc_key, "DC4", 1)
+    
+    
+    
+    tv.set_amp(tv.dc_key, "RF16", 0)
 
     extradrive = tv.add_driving(
         "ExtraDrive1",
@@ -991,6 +994,7 @@ if __name__ == "__main__":
             "DC8": 0.0,
             "DC7": -0.60,
             "DC6": -0.175,
+            "RF16": 0.1,
         },
     )
 

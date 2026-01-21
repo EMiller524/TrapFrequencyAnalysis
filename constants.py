@@ -14,6 +14,10 @@ Electode Naming Diagram:
     DC Blades from -X to +X:
         DC_Blade_A ==> --- DC5  DC4  DC3  DC2  DC1 ---
         DC_Blade_B ==> --- DC6  DC7  DC8  DC9  DC10 ---
+        
+    RF Blades from -X to +X:
+        RF1 ==> --- RF11  RF12  RF13  RF14  RF15 ---
+        RF2 ==> --- RF20  RF19  RF18  RF17  RF16 ---
 
 """
 
@@ -30,6 +34,7 @@ ion_mass = 2.885 * (10 ** (-25))  # kg Yb+
 ion_charge = 1.60217662 * (10 ** (-19))  # C
 epsilon_0 = 8.854187817e-12  # F/m
 
+# Order: DCs first (unchanged), then legacy combined RFs, then the 10 RF segments
 electrode_names = (
     "DC1",
     "DC2",
@@ -43,10 +48,35 @@ electrode_names = (
     "DC10",
     "RF1",
     "RF2",
+    "RF11",
+    "RF12",
+    "RF13",
+    "RF14",
+    "RF15",
+    "RF16",
+    "RF17",
+    "RF18",
+    "RF19",
+    "RF20",
 )
 
-center_region_x_um = 100 # microns
-center_region_y_um = 10 # microns
+# Convenience groupings for segmented RF blades
+RF1_SEGMENTS = ("RF11", "RF12", "RF13", "RF14", "RF15")  # -X -> +X
+RF2_SEGMENTS = (
+    "RF16",
+    "RF17",
+    "RF18",
+    "RF19",
+    "RF20",
+)  # -X -> +X (note: geometry shows 20..16 left->right)
+RF_SEGMENTS = RF1_SEGMENTS + RF2_SEGMENTS
+
+DC_ELECTRODES = tuple(f"DC{i}" for i in range(1, 11))
+RF_ELECTRODES = ("RF1", "RF2") + RF_SEGMENTS
+
+
+center_region_x_um = 100  # microns
+center_region_y_um = 10  # microns
 center_region_z_um = center_region_y_um
 
 
@@ -70,6 +100,21 @@ trap_capcitence_per_electrode_PF = {
     "RF2": 0.01,
 }
 
+trap_capcitence_per_electrode_PF.update(
+    {
+        "RF11": 0.0002,
+        "RF12": 0.0002,
+        "RF13": 0.0002,
+        "RF14": 0.0002,
+        "RF15": 0.0002,
+        "RF16": 0.0002,
+        "RF17": 0.0002,
+        "RF18": 0.0002,
+        "RF19": 0.0002,
+        "RF20": 0.0002,
+    }
+)
+
 ground_capacitor_PF = 1000  # PF
 
 electrode_RF_pickoff_amp_multipliers = {}
@@ -77,6 +122,13 @@ for electrode in trap_capcitence_per_electrode_PF:
     electrode_RF_pickoff_amp_multipliers[electrode] = trap_capcitence_per_electrode_PF[
         electrode
     ] / (trap_capcitence_per_electrode_PF[electrode] + ground_capacitor_PF)
+
+# electrode_RF_pickoff_amp_multipliers = {
+#     **{el: 0.0 for el in DC_ELECTRODES},
+#     "RF1": 0.0,
+#     "RF2": 0.0,
+#     **{el: 0.0 for el in RF_SEGMENTS},
+# }
 
 
 def freq_calcualtion(secondderivative):
@@ -178,7 +230,7 @@ ion_locations_intial_guess[10] = [
     [2.3, 0, 0],
 ]
 
-radial_bounds = 1e-6 / length_harmonic_approximation
+radial_bounds = 5e-6 / length_harmonic_approximation
 axial_bounds = 200e-6 / length_harmonic_approximation
 
 for i in range(1, max_ion_in_chain + 1):
@@ -193,8 +245,9 @@ for i in range(1, max_ion_in_chain + 1):
 
     # make sure the initial guess is a float
     for pnt in range(len(ion_locations_intial_guess[i])):
-        ion_locations_intial_guess[i][pnt][0] = (
-            float(ion_locations_intial_guess[i][pnt][0]))
+        ion_locations_intial_guess[i][pnt][0] = float(
+            ion_locations_intial_guess[i][pnt][0]
+        )
 
 
 # for i in range(1, max_ion_in_chain + 1):

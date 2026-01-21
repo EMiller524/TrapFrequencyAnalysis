@@ -14,16 +14,24 @@ import altair as alt
 import numpy as np
 import pandas as pd
 
-# F110 bits
 from BasicFinderLinearDrivenG02F110 import (
     calculate_jacobian_F110,
     solve_F110_for_targets,
 )
 
-# ⬇️ ADD THIS (F310 bits)
 from BasicFinderLinearDrivenG03F310 import (
     find_max_coupling_tensor_F310,
     solve_F310_for_targets as solve_F310_for_targets_tensor,
+)
+
+from BasicFinderLinearDrivenG02F120 import (
+    find_max_coupling_matrix_F120,
+    solve_F120_for_targets,
+)
+
+from BasicFinderLinearDrivenG03F320 import (
+    find_max_coupling_matrix_F320,
+    solve_F320_for_targets,
 )
 
 
@@ -276,11 +284,32 @@ with st.sidebar:
             "Enable manual DC offsets", value=True, key="manual_dc_enabled"
         )
 
+        # # keep a stable dict in session state
+        # if "manual_dc" not in st.session_state:
+        #     st.session_state["manual_dc"] = {
+        #         k: 0.0
+        #         for k in [
+        #             "DC1",
+        #             "DC2",
+        #             "DC3",
+        #             "DC4",
+        #             "DC5",
+        #             "DC6",
+        #             "DC7",
+        #             "DC8",
+        #             "DC9",
+        #             "DC10",
+        #             "RF1",
+        #             "RF2",
+        #         ]
+        #     }
+
         # keep a stable dict in session state
         if "manual_dc" not in st.session_state:
             st.session_state["manual_dc"] = {
                 k: 0.0
                 for k in [
+                    # DC blades
                     "DC1",
                     "DC2",
                     "DC3",
@@ -291,8 +320,21 @@ with st.sidebar:
                     "DC8",
                     "DC9",
                     "DC10",
+                    # legacy per-blade RF (keep available)
                     "RF1",
                     "RF2",
+                    # NEW: RF1 segments (left→right: RF11..RF15)
+                    "RF11",
+                    "RF12",
+                    "RF13",
+                    "RF14",
+                    "RF15",
+                    # NEW: RF2 segments (left→right by your diagram: RF20..RF16)
+                    "RF20",
+                    "RF19",
+                    "RF18",
+                    "RF17",
+                    "RF16",
                 ]
             }
 
@@ -312,6 +354,27 @@ with st.sidebar:
             cols_bot = st.columns(6)
             order_bot = ["DC6", "DC7", "DC8", "DC9", "DC10", "RF2"]
             for col, key in zip(cols_bot, order_bot):
+                st.session_state["manual_dc"][key] = col.number_input(
+                    f"{key} (V)",
+                    value=float(st.session_state["manual_dc"][key]),
+                    step=0.01,
+                    format="%.3f",
+                )
+            # third row: RF1 segments (left→right: RF11 RF12 RF13 RF14 RF15)
+            cols_rf1 = st.columns(5)
+            order_rf1 = ["RF11", "RF12", "RF13", "RF14", "RF15"]
+            for col, key in zip(cols_rf1, order_rf1):
+                st.session_state["manual_dc"][key] = col.number_input(
+                    f"{key} (V)",
+                    value=float(st.session_state["manual_dc"][key]),
+                    step=0.01,
+                    format="%.3f",
+                )
+
+            # fourth row: RF2 segments (left→right by your diagram: RF20 RF19 RF18 RF17 RF16)
+            cols_rf2 = st.columns(5)
+            order_rf2 = ["RF20", "RF19", "RF18", "RF17", "RF16"]
+            for col, key in zip(cols_rf2, order_rf2):
                 st.session_state["manual_dc"][key] = col.number_input(
                     f"{key} (V)",
                     value=float(st.session_state["manual_dc"][key]),
@@ -1487,7 +1550,7 @@ if res is not None:
                             point=[0.0] * 5,  # linearization at origin (mirrors F110)
                             simulation_preset=cfg_src["preset"],
                             rest_penalty=0.0,
-                            clip_to_bounds=True,
+                            clip_to_bounds=False,
                         )
 
                     # Show solution 5-vector (symmetric DC channels)
@@ -1531,6 +1594,595 @@ if res is not None:
 
                 except Exception as e:
                     st.error(f"F310 target solve failed: {e}")
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # F120 Max Coupling Matrix (bounds ±.5 V on 20 channels)
+    # ────────────────────────────────────────────────────────────────────────────
+    with st.expander("F120 Max Coupling Matrix (bounds ±1 V on 20 channels)"):
+        st.write(
+            "Click **Run** to compute the per-pair max |g₀| (Hz) within ±0.5 V on each of the "
+            "**20 independent channels** (DC1..DC10, RF11..RF20). Results persist until **Clear**."
+        )
+        cA, cB = st.columns([1, 1])
+        run_f120_max = cA.button("Run F120 Max", key="btn_run_f120_max")
+        clear_f120_max = cB.button("Clear", key="btn_clear_f120_max")
+
+        if clear_f120_max:
+            st.session_state.pop("f120_max_matrix", None)
+            st.session_state.pop("f120_max_meta", None)
+
+        if run_f120_max:
+            cfg_src = cfg_cached if cfg_cached is not None else pending_cfg
+            try:
+                SimulationCls, Trapping_VarsCls = _ensure_imports(
+                    cfg_src["repo_path"], cfg_src["add_repo_to_sys_path"]
+                )
+                tv2 = Trapping_VarsCls()
+                # RF drive
+                tv2.add_driving(
+                    "RF",
+                    cfg_src["rf_freq"],
+                    0.0,
+                    {"RF1": cfg_src["rf_amp1"], "RF2": cfg_src["rf_amp2"]},
+                )
+                # Manual DC offsets (before twist/endcaps)
+                if cfg_src.get("manual_dc_enabled") and cfg_src.get(
+                    "manual_dc_offsets"
+                ):
+                    ea2 = tv2.Var_dict[tv2.dc_key]
+                    for el, V in cfg_src["manual_dc_offsets"].items():
+                        try:
+                            ea2.add_amplitude_volt(el, float(V))
+                        except Exception:
+                            pass
+                # Geometry knobs
+                tv2.apply_dc_twist_endcaps(
+                    twist=cfg_src["twist"], endcaps=float(cfg_src["endcaps"])
+                )
+                # Optional extra drive
+                if cfg_src.get("use_extra"):
+                    try:
+                        extra_map = json.loads(cfg_src.get("extra_map_json") or "{}")
+                    except Exception:
+                        extra_map = {}
+                    tv2.add_driving(
+                        "ExtraDrive1", cfg_src["extra_freq"], 0.0, extra_map
+                    )
+
+                with st.spinner("Computing F120 max matrix…"):
+                    f120 = find_max_coupling_matrix_F120(
+                        num_ions=int(cfg_src["num_ions"]),
+                        constant_trappingvars=tv2,
+                        point=[0.0] * 20,  # evaluate at origin in 20-D
+                        amp_bounds=0.5,  # ±1 V on each channel
+                        simulation_preset=cfg_src["preset"],
+                    )
+                st.session_state["f120_max_matrix"] = f120["Gmax_abs_Hz"]
+                st.session_state["f120_max_meta"] = {
+                    "N": int(cfg_src["num_ions"]),
+                    "preset": cfg_src["preset"],
+                    "bounds": "±1 V (20 channels)",
+                }
+                st.success("F120 max matrix computed.")
+            except Exception as e:
+                st.error(f"F120 max computation failed: {e}")
+
+        if "f120_max_matrix" in st.session_state:
+            Mmax = st.session_state["f120_max_matrix"]
+            meta = st.session_state.get("f120_max_meta", {})
+
+            st.caption(
+                f"Upper-triangular matrix of per-pair maxima (Hz). "
+                f"N={meta.get('N','?')}, preset={meta.get('preset','?')}, bounds={meta.get('bounds','?')}."
+            )
+
+            df = pd.DataFrame(Mmax)
+            vmax = float(np.nanmax(Mmax)) if np.size(Mmax) else 0.0
+            vmin_visible = 1.0  # show ≥1 Hz as visible blue
+
+            def _cell_color_log(val, _vmin=vmin_visible, _vmax=vmax):
+                try:
+                    x = float(val)
+                except Exception:
+                    return "background-color: #0e0f13; color: #eaeaea"
+                if not np.isfinite(x) or x <= 0.0:
+                    return "background-color: #0e0f13; color: #eaeaea"
+                if _vmax <= _vmin:
+                    t = 1.0
+                else:
+                    t = (np.log10(x) - np.log10(_vmin)) / (
+                        np.log10(_vmax) - np.log10(_vmin)
+                    )
+                    t = min(1.0, max(0.0, t))
+                b = int(round(255 * t))
+                return f"background-color: rgb(0,0,{b}); color: #eaeaea"
+
+            styled = df.style.format("{:.3e}").applymap(_cell_color_log)
+            st.dataframe(styled, use_container_width=True)
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # F120 Targeted Coupling Solver (enter desired g₀ targets, Hz)
+    # ────────────────────────────────────────────────────────────────────────────
+    with st.expander("F120 Targeted Coupling Solver (enter desired g₀ targets, Hz)"):
+        st.write(
+            "Enter a **K×K** matrix of desired g₀ couplings (Hz). "
+            "Only the **upper triangle** (i<j) is used; diagonal and lower triangle are ignored. "
+            "Then click **Compute** to solve for the **20 independent inputs** (DC1..DC10, RF11..RF20)."
+        )
+
+        K = 3 * int(num_ions)
+        key_df = f"f120_target_matrix_K{K}"
+        if key_df not in st.session_state:
+            st.session_state[key_df] = pd.DataFrame(
+                np.zeros((K, K), dtype=float),
+                index=[f"i={i}" for i in range(K)],
+                columns=[f"j={j}" for j in range(K)],
+            )
+
+        df_target = st.data_editor(
+            st.session_state[key_df],
+            use_container_width=True,
+            num_rows="dynamic",
+            key=f"editor_{key_df}",
+        )
+
+        c1, c2, c3 = st.columns([1, 1, 2])
+        compute_btn = c1.button("Compute inputs (F120)", key="btn_f120_targets_compute")
+        clear_btn = c2.button("Clear matrix", key="btn_f120_targets_clear")
+        c3.caption("Tip: fill only cells with i<j. Others will be ignored.")
+
+        if clear_btn:
+            st.session_state[key_df] = pd.DataFrame(
+                np.zeros((K, K), dtype=float),
+                index=[f"i={i}" for i in range(K)],
+                columns=[f"j={j}" for j in range(K)],
+            )
+            df_target = st.session_state[key_df]
+
+        if compute_btn:
+            targets = []
+            for i in range(K):
+                for j in range(i + 1, K):
+                    try:
+                        val = float(df_target.iat[i, j])
+                    except Exception:
+                        val = 0.0
+                    if val != 0.0:
+                        targets.append(((i, j), val))
+
+            if not targets:
+                st.warning(
+                    "No upper-triangle targets entered. Fill some (i<j) entries and try again."
+                )
+            else:
+                cfg_src = cfg_cached if cfg_cached is not None else pending_cfg
+                try:
+                    SimulationCls, Trapping_VarsCls = _ensure_imports(
+                        cfg_src["repo_path"], cfg_src["add_repo_to_sys_path"]
+                    )
+                    tv2 = Trapping_VarsCls()
+                    # RF
+                    tv2.add_driving(
+                        "RF",
+                        cfg_src["rf_freq"],
+                        0.0,
+                        {"RF1": cfg_src["rf_amp1"], "RF2": cfg_src["rf_amp2"]},
+                    )
+                    # Manual DC → DC drive before twist/endcaps
+                    if cfg_src.get("manual_dc_enabled") and cfg_src.get(
+                        "manual_dc_offsets"
+                    ):
+                        ea2 = tv2.Var_dict[tv2.dc_key]
+                        for el, V in cfg_src["manual_dc_offsets"].items():
+                            try:
+                                ea2.add_amplitude_volt(el, float(V))
+                            except Exception:
+                                pass
+                    # Geometry
+                    tv2.apply_dc_twist_endcaps(
+                        twist=cfg_src["twist"], endcaps=float(cfg_src["endcaps"])
+                    )
+                    # Optional extra drive
+                    if cfg_src.get("use_extra"):
+                        try:
+                            extra_map = json.loads(
+                                cfg_src.get("extra_map_json") or "{}"
+                            )
+                        except Exception:
+                            extra_map = {}
+                        tv2.add_driving(
+                            "ExtraDrive1", cfg_src["extra_freq"], 0.0, extra_map
+                        )
+
+                    with st.spinner("Solving F120 for requested targets…"):
+                        result = solve_F120_for_targets(
+                            mode_pair_targets=targets,  # [((i,j), Hz), ...]
+                            num_ions=int(cfg_src["num_ions"]),
+                            constant_trappingvars=tv2,
+                            point=[0.0] * 20,  # linearization at origin
+                            amp_bounds=1.0,  # ±1 V on each channel
+                            l2_reg=0.0,
+                            minimize_rest=False,
+                            clip_to_bounds=False,
+                            simulation_preset=cfg_src["preset"],
+                        )
+
+                    # Show 20-channel solution neatly
+                    st.success("Solved inputs (20 channels: DC1..DC10, RF11..RF20)")
+                    order = [
+                        "DC1",
+                        "DC2",
+                        "DC3",
+                        "DC4",
+                        "DC5",
+                        "DC6",
+                        "DC7",
+                        "DC8",
+                        "DC9",
+                        "DC10",
+                        "RF11",
+                        "RF12",
+                        "RF13",
+                        "RF14",
+                        "RF15",
+                        "RF16",
+                        "RF17",
+                        "RF18",
+                        "RF19",
+                        "RF20",
+                    ]
+                    x = result["amplitudes_vector"]
+                    rows = [
+                        {"channel": name, "V": float(x[k])}
+                        for k, name in enumerate(order)
+                    ]
+                    st.dataframe(
+                        pd.DataFrame(rows).style.format({"V": "{:.6f}"}),
+                        use_container_width=True,
+                        height=360,
+                    )
+
+                    # Achieved vs target table
+                    pred = dict(result["predicted_targets_Hz"])
+                    rows = []
+                    for (i, j), tgt in targets:
+                        rows.append(
+                            {
+                                "pair (i,j)": f"({i},{j})",
+                                "target (Hz)": tgt,
+                                "achieved (Hz)": pred[(i, j)],
+                                "error (Hz)": pred[(i, j)] - tgt,
+                            }
+                        )
+                    st.write("Achieved vs target:")
+                    st.dataframe(
+                        pd.DataFrame(rows).style.format(
+                            {
+                                "target (Hz)": "{:.6e}",
+                                "achieved (Hz)": "{:.6e}",
+                                "error (Hz)": "{:.6e}",
+                            }
+                        ),
+                        use_container_width=True,
+                    )
+
+                    st.caption(
+                        f"Predicted rest RMS (over non-target rows): {result['predicted_rest_rms_Hz']:.3e} Hz"
+                    )
+
+                except Exception as e:
+                    st.error(f"F120 target solve failed: {e}")
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # F320 Max Coupling Tensor (bounds ±1 V on 20 channels)
+    # ────────────────────────────────────────────────────────────────────────────
+    with st.expander("F320 Max Coupling Tensor (bounds ±1 V on 20 channels)"):
+        st.write(
+            "Click **Run** to compute the per-(a<b, c) max |g₀| (Hz) within ±1 V "
+            "on each of the **20 independent channels** (DC1..DC10, RF11..RF20). "
+            "Results persist until **Clear**."
+        )
+        cA, cB = st.columns([1, 1])
+        run_f320_max = cA.button("Run F320 Max", key="btn_run_f320_max")
+        clear_f320_max = cB.button("Clear", key="btn_clear_f320_max")
+
+        if clear_f320_max:
+            st.session_state.pop("f320_max_tensor", None)
+            st.session_state.pop("f320_max_meta", None)
+
+        if run_f320_max:
+            cfg_src = cfg_cached if cfg_cached is not None else pending_cfg
+            try:
+                SimulationCls, Trapping_VarsCls = _ensure_imports(
+                    cfg_src["repo_path"], cfg_src["add_repo_to_sys_path"]
+                )
+                tv2 = Trapping_VarsCls()
+                # RF drive
+                tv2.add_driving(
+                    "RF",
+                    cfg_src["rf_freq"],
+                    0.0,
+                    {"RF1": cfg_src["rf_amp1"], "RF2": cfg_src["rf_amp2"]},
+                )
+                # Manual DC offsets (before twist/endcaps)
+                if cfg_src.get("manual_dc_enabled") and cfg_src.get(
+                    "manual_dc_offsets"
+                ):
+                    ea2 = tv2.Var_dict[tv2.dc_key]
+                    for el, V in cfg_src["manual_dc_offsets"].items():
+                        try:
+                            ea2.add_amplitude_volt(el, float(V))
+                        except Exception:
+                            pass
+                # Geometry knobs
+                tv2.apply_dc_twist_endcaps(
+                    twist=cfg_src["twist"], endcaps=float(cfg_src["endcaps"])
+                )
+                # Optional extra drive (parity with main sim)
+                if cfg_src.get("use_extra"):
+                    try:
+                        extra_map = json.loads(cfg_src.get("extra_map_json") or "{}")
+                    except Exception:
+                        extra_map = {}
+                    tv2.add_driving(
+                        "ExtraDrive1", cfg_src["extra_freq"], 0.0, extra_map
+                    )
+
+                with st.spinner("Computing F320 max tensor…"):
+                    f320 = find_max_coupling_matrix_F320(
+                        num_ions=int(cfg_src["num_ions"]),
+                        constant_trappingvars=tv2,
+                        point=[0.0] * 20,  # evaluate at origin in 20-D
+                        amp_bounds=1.0,  # ±1 V on each channel
+                        simulation_preset=cfg_src["preset"],
+                    )
+                # Enforce full permutation symmetry for display (fill all permutations)
+                Gmax_sym = _symmetrize_rank3_abs(f320["G3max_abs_Hz"])
+                st.session_state["f320_max_tensor"] = Gmax_sym
+                st.session_state["f320_max_meta"] = {
+                    "N": int(cfg_src["num_ions"]),
+                    "preset": cfg_src["preset"],
+                    "bounds": "±1 V (20 channels)",
+                    "K": int(Gmax_sym.shape[0]),
+                }
+                st.success("F320 max tensor computed.")
+            except Exception as e:
+                st.error(f"F320 max computation failed: {e}")
+
+        # Display (slice by c)
+        if "f320_max_tensor" in st.session_state:
+            Gmax = st.session_state["f320_max_tensor"]
+            meta = st.session_state.get("f320_max_meta", {})
+            K = int(meta.get("K", Gmax.shape[0]))
+            st.caption(
+                f"Tensor slices (Hz). Showing Gmax[:, :, c]. "
+                f"N={meta.get('N','?')}, preset={meta.get('preset','?')}, bounds={meta.get('bounds','?')}."
+            )
+            c_idx = st.selectbox(
+                "Select c-index (mode)",
+                options=list(range(K)),
+                index=0,
+                key="f320_max_cidx",
+            )
+            slice_mat = np.asarray(Gmax)[:, :, c_idx]
+            df_slice = pd.DataFrame(slice_mat)
+
+            def _style_upper_log(df: pd.DataFrame) -> pd.DataFrame:
+                """
+                Color ONLY the upper triangle **including the diagonal** (i<=j).
+                Log-scale is computed from strictly-positive values on that region.
+                Zeros / non-positives / NaNs are treated as 'no signal' (dark).
+                """
+                arr = df.to_numpy(copy=False)
+                n = arr.shape[0]
+                css = np.full(arr.shape, "", dtype=object)
+                iu = np.triu_indices(n, k=0)
+                upper_vals = arr[iu]
+                pos = upper_vals[(upper_vals > 0) & np.isfinite(upper_vals)]
+                if pos.size == 0:
+                    return pd.DataFrame(css, index=df.index, columns=df.columns)
+                vmin = float(pos.min())
+                vmax = float(pos.max())
+                log_min = math.log10(vmin)
+                log_max = math.log10(vmax) if vmax > vmin else log_min + 1e-9
+                for i, j in zip(*iu):
+                    x = arr[i, j]
+                    if not np.isfinite(x) or x <= 0.0:
+                        css[i, j] = "background-color: #0e0f13; color: #eaeaea"
+                    else:
+                        t = (math.log10(x) - log_min) / (log_max - log_min)
+                        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+                        b = int(round(255 * t))
+                        css[i, j] = f"background-color: rgb(0,0,{b}); color: #eaeaea"
+                return pd.DataFrame(css, index=df.index, columns=df.columns)
+
+            styled = df_slice.style.format("{:.3e}").apply(_style_upper_log, axis=None)
+            st.dataframe(styled, use_container_width=True)
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # F320 Targeted Coupling Solver (3-mode) — like F310 but with 20 independent inputs
+    # ────────────────────────────────────────────────────────────────────────────
+    with st.expander("F320 Targeted Coupling Solver (enter desired g₀ targets, Hz)"):
+        st.write(
+            "Pick a **c-index** (mode) and edit the **K×K** table for that slice. "
+            "Only the **upper triangle** (i<j) is used. Click **Compute** to solve for the "
+            "**20 independent inputs** (DC1..DC10, RF11..RF20)."
+        )
+
+        K = 3 * int(num_ions)
+        c_idx = st.selectbox(
+            "Select c-index (mode for the slice)",
+            options=list(range(K)),
+            index=0,
+            key="f320_target_cidx",
+        )
+
+        key_df = f"f320_target_slice_c{c_idx}_K{K}"
+        if key_df not in st.session_state:
+            st.session_state[key_df] = pd.DataFrame(
+                np.zeros((K, K), dtype=float),
+                index=[f"i={i}" for i in range(K)],
+                columns=[f"j={j}" for j in range(K)],
+            )
+
+        df_target_slice = st.data_editor(
+            st.session_state[key_df],
+            use_container_width=True,
+            num_rows="dynamic",
+            key=f"editor_{key_df}",
+        )
+
+        c1, c2, c3 = st.columns([1, 1, 2])
+        compute_btn = c1.button("Compute inputs (F320)", key="btn_f320_targets_compute")
+        clear_btn = c2.button("Clear slice", key="btn_f320_targets_clear")
+        c3.caption(
+            "Tip: fill only cells with i<j. Others are ignored. Leave 0.0 to skip a pair."
+        )
+
+        if clear_btn:
+            st.session_state[key_df] = pd.DataFrame(
+                np.zeros((K, K), dtype=float),
+                index=[f"i={i}" for i in range(K)],
+                columns=[f"j={j}" for j in range(K)],
+            )
+            df_target_slice = st.session_state[key_df]
+
+        if compute_btn:
+            # Build target triples for this c-slice (only nonzero upper-triangle entries)
+            targets = []
+            nonempty = []
+            for i in range(K):
+                for j in range(i + 1, K):
+                    try:
+                        val = float(df_target_slice.iat[i, j])
+                    except Exception:
+                        val = 0.0
+                    if val != 0.0:
+                        targets.append(((i, j, c_idx), val))
+                        nonempty.append((i, j, val))
+
+            if not targets:
+                st.warning(
+                    "No upper-triangle targets entered for this c-slice. Fill some (i<j) and try again."
+                )
+            else:
+                cfg_src = cfg_cached if cfg_cached is not None else pending_cfg
+                try:
+                    SimulationCls, Trapping_VarsCls = _ensure_imports(
+                        cfg_src["repo_path"], cfg_src["add_repo_to_sys_path"]
+                    )
+                    tv2 = Trapping_VarsCls()
+                    # RF
+                    tv2.add_driving(
+                        "RF",
+                        cfg_src["rf_freq"],
+                        0.0,
+                        {"RF1": cfg_src["rf_amp1"], "RF2": cfg_src["rf_amp2"]},
+                    )
+                    # Manual DC → DC drive before twist/endcaps
+                    if cfg_src.get("manual_dc_enabled") and cfg_src.get(
+                        "manual_dc_offsets"
+                    ):
+                        ea2 = tv2.Var_dict[tv2.dc_key]
+                        for el, V in cfg_src["manual_dc_offsets"].items():
+                            try:
+                                ea2.add_amplitude_volt(el, float(V))
+                            except Exception:
+                                pass
+                    # Geometry knobs
+                    tv2.apply_dc_twist_endcaps(
+                        twist=cfg_src["twist"], endcaps=float(cfg_src["endcaps"])
+                    )
+                    # Optional extra drive
+                    if cfg_src.get("use_extra"):
+                        try:
+                            extra_map = json.loads(
+                                cfg_src.get("extra_map_json") or "{}"
+                            )
+                        except Exception:
+                            extra_map = {}
+                        tv2.add_driving(
+                            "ExtraDrive1", cfg_src["extra_freq"], 0.0, extra_map
+                        )
+
+                    with st.spinner("Solving F320 for requested c-slice targets…"):
+                        result = solve_F320_for_targets(
+                            mode_triple_targets=targets,  # [((i,j,c), Hz), ...]
+                            num_ions=int(cfg_src["num_ions"]),
+                            constant_trappingvars=tv2,
+                            point=[0.0] * 20,  # linearization at origin
+                            amp_bounds=1.0,  # ±1 V on each channel
+                            l2_reg=0.0,
+                            minimize_rest=False,
+                            clip_to_bounds=False,
+                            simulation_preset=cfg_src["preset"],
+                        )
+
+                    # Show 20-channel solution neatly
+                    st.success("Solved inputs (20 channels: DC1..DC10, RF11..RF20)")
+                    order = [
+                        "DC1",
+                        "DC2",
+                        "DC3",
+                        "DC4",
+                        "DC5",
+                        "DC6",
+                        "DC7",
+                        "DC8",
+                        "DC9",
+                        "DC10",
+                        "RF11",
+                        "RF12",
+                        "RF13",
+                        "RF14",
+                        "RF15",
+                        "RF16",
+                        "RF17",
+                        "RF18",
+                        "RF19",
+                        "RF20",
+                    ]
+                    x = result["amplitudes_vector"]
+                    rows = [
+                        {"channel": name, "V": float(x[k])}
+                        for k, name in enumerate(order)
+                    ]
+                    st.dataframe(
+                        pd.DataFrame(rows).style.format({"V": "{:.6f}"}),
+                        use_container_width=True,
+                        height=360,
+                    )
+
+                    # Achieved vs target for just the edited c-slice
+                    G_pred = result["predicted_tensor_Hz"]  # K×K×K with a<b filled
+                    rows = []
+                    for i, j, tgt in nonempty:
+                        rows.append(
+                            {
+                                "triple (i,j,c)": f"({i},{j},{c_idx})",
+                                "target (Hz)": tgt,
+                                "achieved (Hz)": G_pred[i, j, c_idx],
+                                "error (Hz)": G_pred[i, j, c_idx] - tgt,
+                            }
+                        )
+                    st.write("Achieved vs target (this c-slice):")
+                    st.dataframe(
+                        pd.DataFrame(rows).style.format(
+                            {
+                                "target (Hz)": "{:.6e}",
+                                "achieved (Hz)": "{:.6e}",
+                                "error (Hz)": "{:.6e}",
+                            }
+                        ),
+                        use_container_width=True,
+                    )
+
+                    st.caption(
+                        f"Residual RMS over non-target rows: {result['predicted_rest_rms_Hz']:.3e} Hz"
+                    )
+
+                except Exception as e:
+                    st.error(f"F320 target solve failed: {e}")
 
     st.divider()
     st.subheader("Raw resonance JSON (for debugging / export)")

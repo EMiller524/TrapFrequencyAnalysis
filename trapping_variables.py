@@ -129,6 +129,7 @@ class Trapping_Vars:
 
     def _update_pickoff_for_drive(self, dk: DriveKey) -> None:
         """Recompute pickoff for a single drive based on its RF reference amplitude."""
+        return
         ea = self.Var_dict[dk]
         ref = self._rf_ref_name(ea)
         rf_amp = ea.get_amplitude(ref) if ref is not None else 0.0
@@ -246,6 +247,7 @@ class Trapping_Vars:
         """
         ea = self.Var_dict[self.dc_key]
         if endcap_electrodes is None:
+            # candidates = {"DC1", "DC5", "DC6", "DC10", "RF11", "RF15", "RF16", "RF20"}
             candidates = {"DC1", "DC5", "DC6", "DC10"}
             endcap_electrodes = [el for el in ea.amplitudes.keys() if el in candidates]
             if not endcap_electrodes:

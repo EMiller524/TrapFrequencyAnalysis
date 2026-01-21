@@ -2,7 +2,6 @@
 This file will contain the class U_min_finding
 """
 
-## ONLY THE LAST TWO SEEM TO NOT BE CHANGING...## <<<< LOOOOOK INTO THISSS
 
 import math
 from matplotlib import pyplot as plt
@@ -654,7 +653,7 @@ class Umin_ReqMixin:
                 constants.ion_locations_intial_guess[num_ions]
             ).flatten()
             init_guess_flat += np.random.uniform(
-                -1e-6, 1e-6, size=init_guess_flat.shape
+                -1.0e-6, 1.0e-6, size=init_guess_flat.shape
             )
         if intial_guess is not None:
             init_guess_flat = intial_guess.flatten()
