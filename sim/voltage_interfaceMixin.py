@@ -2,6 +2,7 @@
 from __future__ import annotations
 import time
 from typing import Tuple
+from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
@@ -259,3 +260,74 @@ class VoltageInterfaceMixin:
             return Vvalue_at_point[0], derivatives
         return Vvalue_at_point[0]
         # Calculate the potential energy of the ions
+
+    def plot_total_voltage_along_axis(self, axis: str, width_um: float, polyfit: int = 4):
+        """
+        Plot TotalV (or Static_TotalV if present) along a chosen axis near the origin.
+
+        Args:
+            axis: 'x', 'y', or 'z'
+            width_um: half-width along the chosen axis (microns)
+            polyfit: polynomial degree for the fit (default 4)
+        """
+        axis = axis.lower().strip()
+        if axis not in ("x", "y", "z"):
+            raise ValueError("axis must be one of: 'x', 'y', 'z'")
+
+        df = self.total_voltage_df
+        if df is None or df.empty:
+            raise ValueError("Total voltage dataframe is empty.")
+
+        value_col = "Static_TotalV" if "Static_TotalV" in df.columns else "TotalV"
+        if value_col not in df.columns:
+            raise KeyError("No total voltage column found (Static_TotalV or TotalV).")
+
+        # Use half-grid spacing as a tolerance for perpendicular axes
+        tol = {}
+        for ax in ("x", "y", "z"):
+            uniq = np.sort(df[ax].unique())
+            if len(uniq) < 2:
+                tol[ax] = 0.0
+            else:
+                tol[ax] = 0.5 * float(np.min(np.diff(uniq)))
+
+        width_m = float(width_um) * 1e-6
+        filters = [df[axis].between(-width_m, width_m)]
+        for ax in ("x", "y", "z"):
+            if ax == axis:
+                continue
+            filters.append(df[ax].between(-tol[ax], tol[ax]))
+
+        mask = np.logical_and.reduce(filters)
+        cutout = df[mask].copy()
+        if cutout.empty:
+            raise ValueError("No points found on axis within the requested width.")
+
+        cutout.sort_values(axis, inplace=True)
+        axis_vals = cutout[axis].to_numpy()
+        volt_vals = cutout[value_col].to_numpy()
+
+        # Fit quadratic and quartic
+        coeffs2 = np.polyfit(axis_vals, volt_vals, 2)
+        poly2 = np.poly1d(coeffs2)
+        coeffs4 = np.polyfit(axis_vals, volt_vals, 4)
+        poly4 = np.poly1d(coeffs4)
+
+        fig, ax = plt.subplots()
+        ax.scatter(axis_vals * 1e6, volt_vals, s=10, alpha=0.7, label="data")
+        xs = np.linspace(axis_vals.min(), axis_vals.max(), 400)
+        ax.plot(xs * 1e6, poly2(xs), color="orange", label="deg2 fit")
+        ax.plot(xs * 1e6, poly4(xs), color="red", label="deg4 fit")
+        ax.set_xlabel(f"{axis} (um)")
+        ax.set_ylabel(value_col)
+        ax.set_title(f"{value_col} along {axis}-axis")
+        ax.legend()
+
+        eq2 = [f"{c:.3e}*x^{p}" for p, c in zip(range(2, -1, -1), coeffs2)]
+        eq4 = [f"{c:.3e}*x^{p}" for p, c in zip(range(4, -1, -1), coeffs4)]
+        print("Quadratic fit:")
+        print(" + ".join(eq2))
+        print("Quartic fit:")
+        print(" + ".join(eq4))
+
+        plt.show()

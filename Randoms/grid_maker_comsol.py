@@ -33,5 +33,5 @@ def print_numbers_separated_by_distance(x, n):
 
 # 2D Grid1 in meters... gotta check with rest of code
 # print_numbers_separated_by_distance(1.5 * 10 ** (-6), 200)  # x
-# print_numbers_separated_by_distance(1.5*10**(-6), 50) # y
-print_numbers_separated_by_distance(1.5 * 10 ** (-6), 150)  # z
+print_numbers_separated_by_distance(1.5*10**(-6), 50) # y
+# print_numbers_separated_by_distance(1.5 * 10 ** (-6), 150)  # z

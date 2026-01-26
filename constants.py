@@ -46,6 +46,9 @@ electrode_names = (
     "DC8",
     "DC9",
     "DC10",
+    "DC11",
+    "DC12",
+    "DC13",
     "RF1",
     "RF2",
     "RF11",
@@ -74,10 +77,17 @@ RF_SEGMENTS = RF1_SEGMENTS + RF2_SEGMENTS
 DC_ELECTRODES = tuple(f"DC{i}" for i in range(1, 11))
 RF_ELECTRODES = ("RF1", "RF2") + RF_SEGMENTS
 
+## used in both directions
 
-center_region_x_um = 100  # microns
-center_region_y_um = 10  # microns
-center_region_z_um = center_region_y_um
+## 1 D ##
+# center_region_x_um = 100  # microns
+# center_region_y_um = 10  # microns
+# center_region_z_um = center_region_y_um
+
+## 2 D ##
+center_region_x_um = 133  # microns
+center_region_y_um = 30  # microns
+center_region_z_um = 100
 
 
 # TODO: The values should be applied differently, the current implemetation is flawed
@@ -85,19 +95,35 @@ center_region_z_um = center_region_y_um
 # that should be used to calculate the pickoff multiplier
 # what we have right now is the RF to [blank] pickoffs
 # ideally we have a 12 by 12 matrix of capacitances (Should be symmetric)
+# trap_capcitence_per_electrode_PF = {
+#     "DC1": 0.155,
+#     "DC2": 0.068,
+#     "DC3": 0.125,
+#     "DC4": 0.075,
+#     "DC5": 0.157,
+#     "DC6": 0.157,
+#     "DC7": 0.076,
+#     "DC8": 0.125,
+#     "DC9": 0.068,
+#     "DC10": 0.155,
+#     "RF1": 0.01,
+#     "RF2": 0.01,
+# }
+
+# zeroing for now
 trap_capcitence_per_electrode_PF = {
-    "DC1": 0.155,
-    "DC2": 0.068,
-    "DC3": 0.125,
-    "DC4": 0.075,
-    "DC5": 0.157,
-    "DC6": 0.157,
-    "DC7": 0.076,
-    "DC8": 0.125,
-    "DC9": 0.068,
-    "DC10": 0.155,
-    "RF1": 0.01,
-    "RF2": 0.01,
+    "DC1": 0.0005,
+    "DC2": 0.0005,
+    "DC3": 0.0005,
+    "DC4": 0.0005,
+    "DC5": 0.0005,
+    "DC6": 0.0005,
+    "DC7": 0.0005,
+    "DC8": 0.0005,
+    "DC9": 0.0005,
+    "DC10": 0.0005,
+    "RF1": 0.0005,
+    "RF2": 0.0005,
 }
 
 trap_capcitence_per_electrode_PF.update(
@@ -143,15 +169,35 @@ ion_electrode_dis = 0.00025
 
 hbar = 1.0545718e-34  # J*s
 
-max_ion_in_chain = 10
+max_ion_in_chain = 100
 
 coulomb_constant = 8.9875517873681764 * (10**9)  # N m^2 / C^2
 
 # Should be a flat list/array of length 3n
-ion_locations_intial_guess = {}
+class _IonInitialGuessDict(dict):
+    def __missing__(self, num_ions):
+        if num_ions <= 0:
+            raise ValueError(f"num_ions must be positive, got {num_ions}")
+        if num_ions == 1:
+            positions = [[0.0, 0.0, 0.0]]
+            self[num_ions] = positions
+            return positions
 
-# Should be length 3n list of (low, high)
-ion_locations_bounds = {}
+        total_length_m = (num_ions / 2.0) * 1e-6
+        x_vals_m = np.linspace(
+            -total_length_m / 2.0, total_length_m / 2.0, num_ions
+        )
+        positions = [
+            [float(x / length_harmonic_approximation), 0.0, 0.0] for x in x_vals_m
+        ]
+        self[num_ions] = positions
+        return positions
+
+
+ion_locations_intial_guess = _IonInitialGuessDict()
+ion_locations_bounds_1d = {}
+ion_locations_bounds_2d = {}
+USE_1D_ION_BOUNDS = False
 
 # Length in harmonic apoximation
 Z = 1
@@ -162,7 +208,7 @@ length_harmonic_approximation = (
 
 print("Length in harmonic approximation: ", length_harmonic_approximation)
 
-# Intial equilib positions nomallized by l:
+# Intial equilib positions normallized by l:
 ion_locations_intial_guess[1] = [[0, 0, 0]]
 ion_locations_intial_guess[2] = [[-0.62996, 0, 0], [0.62996, 0, 0]]
 ion_locations_intial_guess[3] = [[-1.3772, 0, 0], [0, 0, 0], [1.3772, 0, 0]]
@@ -230,11 +276,15 @@ ion_locations_intial_guess[10] = [
     [2.3, 0, 0],
 ]
 
+## 1 d ##
 radial_bounds = 5e-6 / length_harmonic_approximation
 axial_bounds = 200e-6 / length_harmonic_approximation
+center_x_bounds = (center_region_x_um * 1e-6) / length_harmonic_approximation
+center_y_bounds = (center_region_y_um * 1e-6) / length_harmonic_approximation
+center_z_bounds = (center_region_z_um * 1e-6) / length_harmonic_approximation
 
 for i in range(1, max_ion_in_chain + 1):
-    ion_locations_bounds[i] = [
+    ion_locations_bounds_1d[i] = [
         (
             -axial_bounds,
             axial_bounds,
@@ -242,12 +292,21 @@ for i in range(1, max_ion_in_chain + 1):
         (-radial_bounds, radial_bounds),
         (-radial_bounds, radial_bounds),
     ] * (i)
+    ion_locations_bounds_2d[i] = [
+        (-center_x_bounds, center_x_bounds),
+        (-center_y_bounds, center_y_bounds),
+        (-center_z_bounds, center_z_bounds),
+    ] * (i)
 
     # make sure the initial guess is a float
     for pnt in range(len(ion_locations_intial_guess[i])):
         ion_locations_intial_guess[i][pnt][0] = float(
             ion_locations_intial_guess[i][pnt][0]
         )
+
+ion_locations_bounds = (
+    ion_locations_bounds_1d if USE_1D_ION_BOUNDS else ion_locations_bounds_2d
+)
 
 
 # for i in range(1, max_ion_in_chain + 1):

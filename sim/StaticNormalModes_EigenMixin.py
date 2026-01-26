@@ -93,7 +93,11 @@ class StaticNormalModes_EigenMixin:
         import numpy as np, math
 
         lam = np.asarray(lam, dtype=float)
-        lam = np.abs(lam)  # guard tiny negative roundoff
+        
+        # TODO: decide to keep this or now
+        # lam = np.abs(lam)  # guard tiny negative roundoff
+        
+        
         omega = np.sqrt(lam / constants.ion_mass)
         return omega / (2.0 * math.pi)
 
