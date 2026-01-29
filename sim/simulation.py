@@ -977,13 +977,13 @@ def main_2():
     tv = Trapping_Vars()
 
     # RF drive setup
-    rf_freq_hz = (50) * 10**6
-    rf_amp_rf1 = 500
-    rf_amp_rf2 = 500
+    rf_freq_hz = (43) * 10**6
+    rf_amp_rf1 = 510
+    rf_amp_rf2 = 510
     tv.add_driving("RF", rf_freq_hz, 0.0, {"RF1": rf_amp_rf1, "RF2": rf_amp_rf2})
 
-    outer = 0
-    inner = 0
+    outer = 24
+    inner = 13
     # DC electrode offsets (v)
     dc_offsets = {
         "DC1": outer,
@@ -1017,7 +1017,7 @@ def main_2():
     for el, volts in dc_offsets.items():
         tv.set_amp(tv.dc_key, el, volts)
 
-    sim = Simulation("twodTrap_1", tv)
+    sim = Simulation("Inn2dTrap_2", tv)
 
     # Build fits, equilibrium, and single-ion modes
     sim._smoke_test_new_stack(n_ions=1, poly_deg=4)
@@ -1111,13 +1111,21 @@ def main_2():
     print("d2V/dy2:", d2y)
     print("d2V/dz2:", d2z)
 
-    sim.plot_total_voltage_along_axis("x", 100)
-    sim.plot_total_voltage_along_axis("y", 100)
-    sim.plot_total_voltage_along_axis("z", 100)
-    
+    # sim.plot_total_voltage_along_axis("x", 100)
+    # sim.plot_total_voltage_along_axis("y", 100)
+    # sim.plot_total_voltage_along_axis("z", 100)
+
     eq_pos = sim.ion_equilibrium_positions.get(1)
     print("Single-ion equilibrium position (m):", eq_pos)
+    
 
+    fig = sim.plot_total_voltage_along_axes()    
+    plt.show()
+
+
+
+
+    
 
 
 def main_1():

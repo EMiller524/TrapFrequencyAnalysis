@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import altair as alt
+from io import BytesIO
 
 
 import numpy as np
@@ -51,6 +52,76 @@ if "cfg" not in st.session_state:
 
 
 import itertools
+
+
+def make_static_totalV_fit_plane_cut_figure(model, poly, n: int = 120):
+    """
+    Reproduce the 3-panel plane-cut plots of the fitted polynomial at the center:
+      - z=0 (x-y plane)
+      - y=0 (x-z plane)
+      - x=0 (y-z plane)
+
+    Returns a matplotlib Figure.
+    """
+    import constants
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Plot plane cuts of the fitted polynomial at the center
+    span_x = constants.center_region_x_um * 1e-6
+    span_y = constants.center_region_y_um * 1e-6
+    span_z = constants.center_region_z_um * 1e-6
+
+    def _eval_grid(xg, yg, zg):
+        pts = np.c_[xg.ravel(), yg.ravel(), zg.ravel()]
+        vals = model.predict(poly.transform(pts))
+        return vals.reshape(xg.shape)
+
+    x = np.linspace(-span_x, span_x, n)
+    y = np.linspace(-span_y, span_y, n)
+    z = np.linspace(-span_z, span_z, n)
+
+    X_xy, Y_xy = np.meshgrid(x, y, indexing="xy")
+    Z0 = np.zeros_like(X_xy)
+    V_xy = _eval_grid(X_xy, Y_xy, Z0)
+
+    X_xz, Z_xz = np.meshgrid(x, z, indexing="xy")
+    Y0 = np.zeros_like(X_xz)
+    V_xz = _eval_grid(X_xz, Y0, Z_xz)
+
+    Y_yz, Z_yz = np.meshgrid(y, z, indexing="xy")
+    X0 = np.zeros_like(Y_yz)
+    V_yz = _eval_grid(X0, Y_yz, Z_yz)
+
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
+
+    im0 = axes[0].contourf(X_xy * 1e6, Y_xy * 1e6, V_xy, levels=40, cmap="viridis")
+    axes[0].set_title("Static_TotalV fit @ z=0")
+    axes[0].set_xlabel("x (um)")
+    axes[0].set_ylabel("y (um)")
+    fig.colorbar(im0, ax=axes[0])
+
+    im1 = axes[1].contourf(X_xz * 1e6, Z_xz * 1e6, V_xz, levels=40, cmap="viridis")
+    axes[1].set_title("Static_TotalV fit @ y=0")
+    axes[1].set_xlabel("x (um)")
+    axes[1].set_ylabel("z (um)")
+    fig.colorbar(im1, ax=axes[1])
+
+    im2 = axes[2].contourf(Y_yz * 1e6, Z_yz * 1e6, V_yz, levels=40, cmap="viridis")
+    axes[2].set_title("Static_TotalV fit @ x=0")
+    axes[2].set_xlabel("y (um)")
+    axes[2].set_ylabel("z (um)")
+    fig.colorbar(im2, ax=axes[2])
+
+    return fig
+
+
+def fig_to_png_bytes(fig) -> bytes:
+    """Convert a matplotlib Figure to PNG bytes (for storing in cached results)."""
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=160, bbox_inches="tight")
+    buf.seek(0)
+    return buf.read()
 
 
 def _symmetrize_rank3_abs(G: np.ndarray) -> np.ndarray:
@@ -113,6 +184,19 @@ DIR_COLORS = {
 
 def dir_color(idx: int) -> str:
     return DIR_COLORS.get(int(idx), "#888888")
+
+
+def _independent_channel_order(preset: str) -> List[str]:
+    """
+    Channel order used by F120/F320 solvers.
+
+    Legacy: 20 channels = DC1..DC10 + RF11..RF20
+    twodTrap_1: 12 channels = DC1..DC12
+    """
+    p = str(preset).strip()
+    if p == "twodTrap_1":
+        return [f"DC{i}" for i in range(1, 13)]
+    return [f"DC{i}" for i in range(1, 11)] + [f"RF{i}" for i in range(11, 21)]
 
 
 def _to_jsonable(obj):
@@ -216,9 +300,10 @@ with st.sidebar:
         st.header("Trap / Simulation Setup")
         preset = st.selectbox(
             "Simulation preset (name passed to Simulation)",
-            options=["Simp58_101", "NISTMock", "Hyper_2", "Custom"],
+            options=["Simp58_101", "NISTMock", "Hyper_2", "twodTrap_1", "Custom"],
             index=0,
         )
+
         if preset == "Custom":
             preset = st.text_input("Custom preset string", value="Simp58_101")
 
@@ -260,12 +345,14 @@ with st.sidebar:
             "DC8": 0.0,
             "DC7": -0.60,
             "DC6": -0.175,
+            "DC11": 0.0,
+            "DC12": 0.0,
         }
         extra_map_json = st.text_area(
             "Extra Drive DC map (JSON dict)",
             value=json.dumps(default_extra_map, indent=2),
             height=160,
-            help="Map electrode names to amplitudes (in volts). Example keys: DC1..DC10.",
+            help="Map electrode names to amplitudes (in volts). Example keys: DC1..DC12.",
         )
 
         st.subheader("DC Geometry")
@@ -320,6 +407,8 @@ with st.sidebar:
                     "DC8",
                     "DC9",
                     "DC10",
+                    "DC11",
+                    "DC12",
                     # legacy per-blade RF (keep available)
                     "RF1",
                     "RF2",
@@ -340,8 +429,9 @@ with st.sidebar:
 
         if manual_dc_enabled:
             # first row: DC5  DC4  DC3  DC2  DC1  RF1
-            cols_top = st.columns(6)
-            order_top = ["DC5", "DC4", "DC3", "DC2", "DC1", "RF1"]
+            # Row 1: DC6 DC5 DC4 DC3 DC2 DC1 RF1
+            cols_top = st.columns(7)
+            order_top = ["DC6", "DC5", "DC4", "DC3", "DC2", "DC1", "RF1"]
             for col, key in zip(cols_top, order_top):
                 st.session_state["manual_dc"][key] = col.number_input(
                     f"{key} (V)",
@@ -350,9 +440,9 @@ with st.sidebar:
                     format="%.3f",
                 )
 
-            # second row: DC6  DC7  DC8  DC9  DC10  RF2
-            cols_bot = st.columns(6)
-            order_bot = ["DC6", "DC7", "DC8", "DC9", "DC10", "RF2"]
+            # Row 2: DC7 DC8 DC9 DC10 DC11 DC12 RF2
+            cols_bot = st.columns(7)
+            order_bot = ["DC7", "DC8", "DC9", "DC10", "DC11", "DC12", "RF2"]
             for col, key in zip(cols_bot, order_bot):
                 st.session_state["manual_dc"][key] = col.number_input(
                     f"{key} (V)",
@@ -645,6 +735,41 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError(
             "Simulation does not have _smoke_test_new_stack or get_static_normal_modes_and_freq."
         )
+        
+    # --- Static_TotalV fit plane-cut plots (3-panel) ---
+    static_fit_png = None
+    static_fit_r2 = None
+    try:
+        # The DC drive key corresponds to f=0 -> "Static_TotalV"
+        dc_key = getattr(tv, "dc_key", None)
+        if dc_key is None and hasattr(sim, "trapVariables"):
+            dc_key = getattr(sim.trapVariables, "dc_key", None)
+
+        fit = None
+        if hasattr(sim, "center_fits") and dc_key is not None:
+            fit = sim.center_fits.get(dc_key)
+
+        # If not available, try to build fits (if your Simulation includes VoltageFitsMixin)
+        if fit is None and hasattr(sim, "update_center_polys"):
+            sim.update_center_polys(polyfit_deg=cfg["poly_deg"])
+            if hasattr(sim, "center_fits") and dc_key is not None:
+                fit = sim.center_fits.get(dc_key)
+
+        if fit is not None:
+            model, poly, r2 = fit
+            static_fit_r2 = float(r2)
+            fig = make_static_totalV_fit_plane_cut_figure(model, poly, n=120)
+            static_fit_png = fig_to_png_bytes(fig)
+            # avoid memory leak in Streamlit reruns
+            try:
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+            except Exception:
+                pass
+    except Exception:
+        static_fit_png = None
+        static_fit_r2 = None
+
 
     # # Frequencies & modes
     # nmf = sim.normal_modes_and_frequencies[cfg["num_ions"]]
@@ -672,6 +797,21 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         sim.principal_dirs, dtype=float
     )  # shape (3,3); rows dir_0..2 => [x,y,z]
 
+    # Single-ion secular frequencies along the principal directions (Hz)
+    # (dir_0 is the lowest-frequency principal axis)
+    secular_freqs_Hz = None
+    try:
+        p1 = sim.principal_dir_normalmodes_andfrequencies.get(1)
+        if p1 is None:
+            # Ensure 1-ion data exists
+            sim.get_static_normal_modes_and_freq(1, normalize=True, sort_by_freq=True)
+            sim.populate_normalmodes_in_prinipledir_freq_labels()
+            p1 = sim.principal_dir_normalmodes_andfrequencies.get(1)
+        if p1 is not None:
+            secular_freqs_Hz = np.asarray(p1.get("frequencies_Hz"), dtype=float)
+    except Exception:
+        secular_freqs_Hz = None
+
     # Equilibrium positions
     eq_positions = _eq_from_ion_equilibrium_positions(sim, cfg["num_ions"])
 
@@ -696,6 +836,11 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         "eq_positions": eq_positions,
         "resonances": out_res,
         "principal_dirs": principal_dirs,  # 3×3, rows: dir_0..2 in lab (x,y,z)
+        "secular_frequencies_Hz": secular_freqs_Hz,  # (3,) for 1-ion if available
+        # new: 3-panel plane cuts of Static_TotalV polynomial fit
+        "static_totalV_fit_plane_cuts_png": static_fit_png,
+        "static_totalV_fit_r2": static_fit_r2,
+    
     }
 
 
@@ -761,11 +906,30 @@ if res is not None:
         if P is not None:
             dfP = pd.DataFrame(np.asarray(P, dtype=float), columns=["x", "y", "z"])
             dfP.index = ["dir_0 (lowest f)", "dir_1", "dir_2"]
+
+            sec = res.get("secular_frequencies_Hz", None)
+            if sec is not None:
+                sec = np.asarray(sec, dtype=float).reshape(-1)
+                if sec.size >= 3:
+                    dfP["f (MHz)"] = sec[:3] / 1e6
+
             st.dataframe(
-                dfP.style.format("{:.6f}"), use_container_width=False, height=130
+                dfP.style.format("{:.6f}"),
+                use_container_width=False,
+                height=130,
             )
         else:
             st.caption("Principal directions not available.")
+
+# Static_TotalV fit plane cuts (3-panel)
+if res is not None:
+    png = res.get("static_totalV_fit_plane_cuts_png")
+    if png:
+        r2 = res.get("static_totalV_fit_r2")
+        cap = None if r2 is None else f"Static_TotalV polynomial fit plane cuts (R²={r2:.6f})"
+        st.subheader("Static_TotalV fit plane cuts")
+        st.image(png, caption=cap, use_column_width=True)
+
 
 
 if res is not None:

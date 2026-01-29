@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
-
+import constants
 from trapping_variables import drive_colname  # single source of truth for column names
 
 
@@ -261,7 +261,9 @@ class VoltageInterfaceMixin:
         return Vvalue_at_point[0]
         # Calculate the potential energy of the ions
 
-    def plot_total_voltage_along_axis(self, axis: str, width_um: float, polyfit: int = 4):
+    def plot_total_voltage_along_axis(
+        self, axis: str, width_um: float, polyfit: int = 4
+    ):
         """
         Plot TotalV (or Static_TotalV if present) along a chosen axis near the origin.
 
@@ -331,3 +333,105 @@ class VoltageInterfaceMixin:
         print(" + ".join(eq4))
 
         plt.show()
+
+    def _secular_freq_from_second_derivative(self, second_derivative):
+        """
+        Convert second derivative (V/m^2) to secular frequency (MHz).
+        """
+        return (
+            np.sign(second_derivative)
+            * np.sqrt(
+                (constants.ion_charge / constants.ion_mass) * abs(second_derivative)
+            )
+            / (2 * np.pi)
+        )
+
+    def plot_total_voltage_along_axes(self, width_um = [1000,1000,1000]):
+        """
+        Plot TotalV along x, y, z axes and return the figure (no plt.show).
+
+        Args:
+            width_um: [xwidth, ywidth, zwidth] in microns
+        """
+        if len(width_um) != 3:
+            raise ValueError("width_um must be [xwidth, ywidth, zwidth]")
+
+        widths = {
+            "x": float(width_um[0]),
+            "y": float(width_um[1]),
+            "z": float(width_um[2]),
+        }
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
+
+        for ax_key, ax_plot in zip(("x", "y", "z"), axes):
+            # use existing single-axis plotter but render on provided axis
+            axis = ax_key
+            df = self.total_voltage_df
+            if df is None or df.empty:
+                raise ValueError("Total voltage dataframe is empty.")
+
+            value_col = "Static_TotalV" if "Static_TotalV" in df.columns else "TotalV"
+            if value_col not in df.columns:
+                raise KeyError(
+                    "No total voltage column found (Static_TotalV or TotalV)."
+                )
+
+            tol = {}
+            for ax in ("x", "y", "z"):
+                uniq = np.sort(df[ax].unique())
+                if len(uniq) < 2:
+                    tol[ax] = 0.0
+                else:
+                    tol[ax] = 0.5 * float(np.min(np.diff(uniq)))
+
+            width_m = widths[axis] * 1e-6
+            filters = [df[axis].between(-width_m, width_m)]
+            for ax in ("x", "y", "z"):
+                if ax == axis:
+                    continue
+                filters.append(df[ax].between(-tol[ax], tol[ax]))
+
+            mask = np.logical_and.reduce(filters)
+            cutout = df[mask].copy()
+            if cutout.empty:
+                raise ValueError(f"No points found on {axis}-axis within width.")
+
+            cutout.sort_values(axis, inplace=True)
+            axis_vals = cutout[axis].to_numpy()
+            volt_vals = cutout[value_col].to_numpy()
+
+            # fits
+            coeffs2 = np.polyfit(axis_vals, volt_vals, 2)
+            coeffs4 = np.polyfit(axis_vals, volt_vals, 4)
+            poly2 = np.poly1d(coeffs2)
+            poly4 = np.poly1d(coeffs4)
+
+            xs = np.linspace(axis_vals.min(), axis_vals.max(), 400)
+            ax_plot.scatter(axis_vals * 1e6, volt_vals, s=10, alpha=0.7, label="data")
+            ax_plot.plot(xs * 1e6, poly2(xs), color="orange", label="deg2 fit")
+            ax_plot.plot(xs * 1e6, poly4(xs), color="red", label="deg4 fit")
+
+            # second derivative from quartic at x=0: if coeffs4 = [a,b,c,d,e]
+            # V(x) = a x^4 + b x^3 + c x^2 + d x + e => V''(0) = 2c
+            a, b, c, d, e = coeffs4
+            d2 = 2.0 * c
+            freq_hz = self._secular_freq_from_second_derivative(d2)
+
+            ax_plot.text(
+                0.02,
+                0.98,
+                f"d2V/d{axis}2={d2:.3e}\nsec f={freq_hz:.3e} Hz",
+                transform=ax_plot.transAxes,
+                va="top",
+                ha="left",
+                fontsize=9,
+                bbox={"boxstyle": "round", "fc": "white", "ec": "0.8", "alpha": 0.9},
+        )            
+            ax_plot.set_title(f"{value_col} along {axis}-axis")
+            ax_plot.set_xlabel(f"{axis} (um)")
+            ax_plot.set_ylabel(value_col)
+            ax_plot.legend()
+
+
+        return fig
