@@ -54,68 +54,6 @@ if "cfg" not in st.session_state:
 import itertools
 
 
-def make_static_totalV_fit_plane_cut_figure(model, poly, n: int = 120):
-    """
-    Reproduce the 3-panel plane-cut plots of the fitted polynomial at the center:
-      - z=0 (x-y plane)
-      - y=0 (x-z plane)
-      - x=0 (y-z plane)
-
-    Returns a matplotlib Figure.
-    """
-    import constants
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    # Plot plane cuts of the fitted polynomial at the center
-    span_x = constants.center_region_x_um * 1e-6
-    span_y = constants.center_region_y_um * 1e-6
-    span_z = constants.center_region_z_um * 1e-6
-
-    def _eval_grid(xg, yg, zg):
-        pts = np.c_[xg.ravel(), yg.ravel(), zg.ravel()]
-        vals = model.predict(poly.transform(pts))
-        return vals.reshape(xg.shape)
-
-    x = np.linspace(-span_x, span_x, n)
-    y = np.linspace(-span_y, span_y, n)
-    z = np.linspace(-span_z, span_z, n)
-
-    X_xy, Y_xy = np.meshgrid(x, y, indexing="xy")
-    Z0 = np.zeros_like(X_xy)
-    V_xy = _eval_grid(X_xy, Y_xy, Z0)
-
-    X_xz, Z_xz = np.meshgrid(x, z, indexing="xy")
-    Y0 = np.zeros_like(X_xz)
-    V_xz = _eval_grid(X_xz, Y0, Z_xz)
-
-    Y_yz, Z_yz = np.meshgrid(y, z, indexing="xy")
-    X0 = np.zeros_like(Y_yz)
-    V_yz = _eval_grid(X0, Y_yz, Z_yz)
-
-    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
-
-    im0 = axes[0].contourf(X_xy * 1e6, Y_xy * 1e6, V_xy, levels=40, cmap="viridis")
-    axes[0].set_title("Static_TotalV fit @ z=0")
-    axes[0].set_xlabel("x (um)")
-    axes[0].set_ylabel("y (um)")
-    fig.colorbar(im0, ax=axes[0])
-
-    im1 = axes[1].contourf(X_xz * 1e6, Z_xz * 1e6, V_xz, levels=40, cmap="viridis")
-    axes[1].set_title("Static_TotalV fit @ y=0")
-    axes[1].set_xlabel("x (um)")
-    axes[1].set_ylabel("z (um)")
-    fig.colorbar(im1, ax=axes[1])
-
-    im2 = axes[2].contourf(Y_yz * 1e6, Z_yz * 1e6, V_yz, levels=40, cmap="viridis")
-    axes[2].set_title("Static_TotalV fit @ x=0")
-    axes[2].set_xlabel("y (um)")
-    axes[2].set_ylabel("z (um)")
-    fig.colorbar(im2, ax=axes[2])
-
-    return fig
-
-
 def fig_to_png_bytes(fig) -> bytes:
     """Convert a matplotlib Figure to PNG bytes (for storing in cached results)."""
     buf = BytesIO()
@@ -312,6 +250,9 @@ with st.sidebar:
         )
         poly_deg = st.selectbox(
             "Polynomial degree for fits", options=[2, 3, 4, 5, 6], index=2
+        )
+        generate_voltage_plots = st.checkbox(
+            "Generate_Voltage_Visualization_Plots", value=False
         )
 
         st.subheader("RF Drive")
@@ -736,39 +677,27 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
             "Simulation does not have _smoke_test_new_stack or get_static_normal_modes_and_freq."
         )
         
-    # --- Static_TotalV fit plane-cut plots (3-panel) ---
-    static_fit_png = None
-    static_fit_r2 = None
-    try:
-        # The DC drive key corresponds to f=0 -> "Static_TotalV"
-        dc_key = getattr(tv, "dc_key", None)
-        if dc_key is None and hasattr(sim, "trapVariables"):
-            dc_key = getattr(sim.trapVariables, "dc_key", None)
-
-        fit = None
-        if hasattr(sim, "center_fits") and dc_key is not None:
-            fit = sim.center_fits.get(dc_key)
-
-        # If not available, try to build fits (if your Simulation includes VoltageFitsMixin)
-        if fit is None and hasattr(sim, "update_center_polys"):
-            sim.update_center_polys(polyfit_deg=cfg["poly_deg"])
-            if hasattr(sim, "center_fits") and dc_key is not None:
-                fit = sim.center_fits.get(dc_key)
-
-        if fit is not None:
-            model, poly, r2 = fit
-            static_fit_r2 = float(r2)
-            fig = make_static_totalV_fit_plane_cut_figure(model, poly, n=120)
-            static_fit_png = fig_to_png_bytes(fig)
+    # --- Static_TotalV plots ---
+    plane_cuts_png = None
+    along_axes_png = None
+    if cfg.get("generate_voltage_plots"):
+        try:
+            fig_plane = sim.plot_total_voltage_plane_cuts(
+                n=120, poly_deg=cfg["poly_deg"]
+            )
+            plane_cuts_png = fig_to_png_bytes(fig_plane)
+            fig_axes = sim.plot_total_voltage_along_axes()
+            along_axes_png = fig_to_png_bytes(fig_axes)
             # avoid memory leak in Streamlit reruns
             try:
                 import matplotlib.pyplot as plt
-                plt.close(fig)
+                plt.close(fig_plane)
+                plt.close(fig_axes)
             except Exception:
                 pass
-    except Exception:
-        static_fit_png = None
-        static_fit_r2 = None
+        except Exception:
+            plane_cuts_png = None
+            along_axes_png = None
 
 
     # # Frequencies & modes
@@ -837,9 +766,10 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         "resonances": out_res,
         "principal_dirs": principal_dirs,  # 3×3, rows: dir_0..2 in lab (x,y,z)
         "secular_frequencies_Hz": secular_freqs_Hz,  # (3,) for 1-ion if available
-        # new: 3-panel plane cuts of Static_TotalV polynomial fit
-        "static_totalV_fit_plane_cuts_png": static_fit_png,
-        "static_totalV_fit_r2": static_fit_r2,
+        # new: Static_TotalV plots
+        "static_totalV_plane_cuts_png": plane_cuts_png,
+        "static_totalV_along_axes_png": along_axes_png,
+        "generate_voltage_plots": bool(cfg.get("generate_voltage_plots")),
     
     }
 
@@ -853,6 +783,7 @@ pending_cfg = {
     "preset": preset,
     "num_ions": int(num_ions),
     "poly_deg": int(poly_deg),
+    "generate_voltage_plots": bool(generate_voltage_plots),
     "rf_freq": float(rf_freq),
     "rf_amp1": float(rf_amp1),
     "rf_amp2": float(rf_amp2),
@@ -921,14 +852,16 @@ if res is not None:
         else:
             st.caption("Principal directions not available.")
 
-# Static_TotalV fit plane cuts (3-panel)
-if res is not None:
-    png = res.get("static_totalV_fit_plane_cuts_png")
-    if png:
-        r2 = res.get("static_totalV_fit_r2")
-        cap = None if r2 is None else f"Static_TotalV polynomial fit plane cuts (R²={r2:.6f})"
-        st.subheader("Static_TotalV fit plane cuts")
-        st.image(png, caption=cap, use_column_width=True)
+# Static_TotalV plots
+if res is not None and res.get("generate_voltage_plots"):
+    png_plane = res.get("static_totalV_plane_cuts_png")
+    if png_plane:
+        st.subheader("Static_TotalV plane cuts")
+        st.image(png_plane, use_column_width=True)
+    png_axes = res.get("static_totalV_along_axes_png")
+    if png_axes:
+        st.subheader("Static_TotalV along axes")
+        st.image(png_axes, use_column_width=True)
 
 
 

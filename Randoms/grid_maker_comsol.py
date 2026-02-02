@@ -1,7 +1,8 @@
-'''
+"""
 This file is just to generate the stings that get copyied and pasted into COMSOL
 See the comments below to see the params used to make each grid type
-'''
+"""
+
 
 def print_numbers_separated_by_distance(x, n):
     # Generate the numbers centered at zero
@@ -32,6 +33,7 @@ def print_numbers_separated_by_distance(x, n):
 
 
 # 2D Grid1 in meters... gotta check with rest of code
-# print_numbers_separated_by_distance(1.5 * 10 ** (-6), 200)  # x
-print_numbers_separated_by_distance(1.5*10**(-6), 50) # y
-# print_numbers_separated_by_distance(1.5 * 10 ** (-6), 150)  # z
+# print_numbers_separated_by_distance(2 * 10 ** (-6), 150)  # x
+# print_numbers_separated_by_distance(2 * 10 ** (-6), 120)  # y
+# print_numbers_separated_by_distance(2 * 10 ** (-6), 120)  # z
+

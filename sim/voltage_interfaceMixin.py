@@ -435,3 +435,72 @@ class VoltageInterfaceMixin:
 
 
         return fig
+
+    def plot_total_voltage_plane_cuts(self, n: int = 120, poly_deg: int | None = None):
+        """
+        Plot Static_TotalV fit plane cuts at x=0, y=0, z=0 and return the figure.
+        """
+        dc_key = getattr(self.trapVariables, "dc_key", None)
+        fit = None
+        if dc_key is not None and hasattr(self, "center_fits"):
+            fit = self.center_fits.get(dc_key)
+
+        if fit is None:
+            if not hasattr(self, "update_center_polys"):
+                raise RuntimeError("No center fit found and update_center_polys not available.")
+            if poly_deg is None:
+                poly_deg = 4
+            self.update_center_polys(polyfit_deg=poly_deg)
+            if dc_key is not None and hasattr(self, "center_fits"):
+                fit = self.center_fits.get(dc_key)
+
+        if fit is None:
+            raise RuntimeError("Center fit for Static_TotalV not available.")
+
+        model, poly, _r2 = fit
+
+        span_x = constants.center_region_x_um * 1e-6
+        span_y = constants.center_region_y_um * 1e-6
+        span_z = constants.center_region_z_um * 1e-6
+
+        def _eval_grid(xg, yg, zg):
+            pts = np.c_[xg.ravel(), yg.ravel(), zg.ravel()]
+            vals = model.predict(poly.transform(pts))
+            return vals.reshape(xg.shape)
+
+        x = np.linspace(-span_x, span_x, n)
+        y = np.linspace(-span_y, span_y, n)
+        z = np.linspace(-span_z, span_z, n)
+
+        X_xy, Y_xy = np.meshgrid(x, y, indexing="xy")
+        Z0 = np.zeros_like(X_xy)
+        V_xy = _eval_grid(X_xy, Y_xy, Z0)
+
+        X_xz, Z_xz = np.meshgrid(x, z, indexing="xy")
+        Y0 = np.zeros_like(X_xz)
+        V_xz = _eval_grid(X_xz, Y0, Z_xz)
+
+        Y_yz, Z_yz = np.meshgrid(y, z, indexing="xy")
+        X0 = np.zeros_like(Y_yz)
+        V_yz = _eval_grid(X0, Y_yz, Z_yz)
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
+        im0 = axes[0].contourf(X_xy * 1e6, Y_xy * 1e6, V_xy, levels=40, cmap="viridis")
+        axes[0].set_title("Static_TotalV fit @ z=0")
+        axes[0].set_xlabel("x (um)")
+        axes[0].set_ylabel("y (um)")
+        fig.colorbar(im0, ax=axes[0])
+
+        im1 = axes[1].contourf(X_xz * 1e6, Z_xz * 1e6, V_xz, levels=40, cmap="viridis")
+        axes[1].set_title("Static_TotalV fit @ y=0")
+        axes[1].set_xlabel("x (um)")
+        axes[1].set_ylabel("z (um)")
+        fig.colorbar(im1, ax=axes[1])
+
+        im2 = axes[2].contourf(Y_yz * 1e6, Z_yz * 1e6, V_yz, levels=40, cmap="viridis")
+        axes[2].set_title("Static_TotalV fit @ x=0")
+        axes[2].set_xlabel("y (um)")
+        axes[2].set_ylabel("z (um)")
+        fig.colorbar(im2, ax=axes[2])
+
+        return fig

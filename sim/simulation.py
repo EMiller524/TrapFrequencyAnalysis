@@ -17,6 +17,7 @@ from multiprocessing import Pool, cpu_count
 from joblib import Parallel, delayed
 from scipy.interpolate import griddata
 import numexpr as ne
+from typing import Optional
 from trapping_variables import Trapping_Vars, DriveKey
 from scipy.optimize import minimize, BFGS, basinhopping
 from scipy.optimize import differential_evolution
@@ -52,7 +53,8 @@ class Simulation(
         timesimstart = time.time()
         print("initializing simulation")
         self.dataset = dataset
-        self.file_path = "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\" + dataset + "\\"
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        self.file_path = os.path.join(repo_root, "Data", dataset, "")
 
         self.trapVariables = trapVars
 
@@ -113,7 +115,7 @@ class Simulation(
         # expose all dataframe columns to numexpr
         local_dict = {col: df[col] for col in df.columns}
 
-        # DC: scalar term 
+        # DC: scalar term
         dc_map = tv.get_drive_amplitudes(tv.dc_key)  # {electrode: volts}
         v_dc_terms = []
         for el in electrodes:
@@ -251,6 +253,117 @@ class Simulation(
         """
         self.trapVariables = new_vars
         self.update_total_voltage_columns()
+
+    def get_total_E_components(self, drive: Optional[DriveKey] = None):
+        """
+        Return total (Ex, Ey, Ez) across all electrodes for a given drive.
+        If drive is None, uses the DC drive.
+        """
+        if drive is None:
+            drive = self.trapVariables.dc_key
+
+        df = self.total_voltage_df
+        amp_map = self.trapVariables.get_drive_amplitudes(drive)
+
+        ex = np.zeros(len(df), dtype=float)
+        ey = np.zeros(len(df), dtype=float)
+        ez = np.zeros(len(df), dtype=float)
+
+        for el, coef in amp_map.items():
+            if coef == 0.0:
+                continue
+            cx, cy, cz = f"{el}_Ex", f"{el}_Ey", f"{el}_Ez"
+            if cx in df.columns:
+                ex += df[cx].to_numpy(dtype=float) * coef
+            if cy in df.columns:
+                ey += df[cy].to_numpy(dtype=float) * coef
+            if cz in df.columns:
+                ez += df[cz].to_numpy(dtype=float) * coef
+
+        return ex, ey, ez
+
+    def get_total_E_magnitude(self, drive: Optional[DriveKey] = None):
+        """
+        Return |E| across all electrodes for a given drive.
+        If drive is None, uses the DC drive.
+        """
+        ex, ey, ez = self.get_total_E_components(drive=drive)
+        return np.sqrt(ex * ex + ey * ey + ez * ez)
+
+    def get_yz_plane_E_magnitude(
+        self,
+        span_um: float = 30.0,
+        x_center_m: float = 0.0,
+        drive: Optional[DriveKey] = None,
+    ):
+        """
+        Return (Y, Z, Emag, x_plane) for the yz-plane at the nearest x grid.
+        span_um is total width/height of the square plane in microns.
+        """
+        df = self.total_voltage_df
+        half = 0.5 * span_um * 1e-6
+
+        x_vals = np.unique(df["x"].to_numpy())
+        if x_vals.size == 0:
+            raise ValueError("No x values found in dataframe.")
+        x0 = float(x_vals[np.argmin(np.abs(x_vals - x_center_m))])
+
+        mask = (
+            (df["x"] == x0)
+            & (df["y"].between(-half, half))
+            & (df["z"].between(-half, half))
+        )
+        plane = df.loc[mask, ["x", "y", "z"]].copy()
+        if plane.empty:
+            raise ValueError("No points found in the requested yz plane window.")
+
+        ex, ey, ez = self.get_total_E_components(drive=drive)
+        emag = np.sqrt(ex * ex + ey * ey + ez * ez)
+        plane["Emag"] = emag[mask.to_numpy()]
+
+        y_vals = np.sort(plane["y"].unique())
+        z_vals = np.sort(plane["z"].unique())
+        grid = plane.pivot_table(index="y", columns="z", values="Emag")
+
+        Y, Z = np.meshgrid(y_vals, z_vals, indexing="xy")
+        E = grid.to_numpy().T
+
+        return Y, Z, E, x0
+
+    def get_total_MM_magnitude(self):
+        """
+        Return micromotion amplitude on a 30x30 um yz plane at x≈0.
+        Uses the fastest non-DC drive and MM = (q / (m * f^2)) * |E|.
+        """
+        rf_drives = [dk for dk in self.trapVariables.get_drives() if dk.f_uHz != 0]
+        if not rf_drives:
+            raise ValueError("No non-DC drives found for micromotion calculation.")
+        drive = max(rf_drives, key=lambda d: d.f_hz)
+
+        Y, Z, E, x0 = self.get_yz_plane_E_magnitude(
+            span_um=20.0,
+            x_center_m=0.0,
+            drive=drive,
+        )
+
+        omega = 2*np.pi*drive.f_hz
+        const = constants.ion_charge / (constants.ion_mass * omega**2)
+        print(const)
+        MM = const * E
+        return Y, Z, MM, x0
+
+    def plot_total_MM_magnitude(self):
+        """
+        Plot micromotion amplitude on a 30x30 um yz plane at x≈0.
+        """
+        Y, Z, MM, x0 = self.get_total_MM_magnitude()
+        fig, ax = plt.subplots(1, 1, figsize=(5.2, 4.4), constrained_layout=True)
+        im = ax.contourf(Y * 1e6, Z * 1e6, MM, levels=40, cmap="viridis")
+        ax.set_title(f"MM amplitude @ x={x0 * 1e6:.3g} um")
+        ax.set_xlabel("y (um)")
+        ax.set_ylabel("z (um)")
+        fig.colorbar(im, ax=ax, label="MM amplitude (m)")
+        return fig
 
     def _smoke_test_new_stack(self, n_ions=2, poly_deg=4):
         import numpy as np
@@ -978,12 +1091,12 @@ def main_2():
 
     # RF drive setup
     rf_freq_hz = (43) * 10**6
-    rf_amp_rf1 = 510
-    rf_amp_rf2 = 510
+    rf_amp_rf1 = 500
+    rf_amp_rf2 = 500
     tv.add_driving("RF", rf_freq_hz, 0.0, {"RF1": rf_amp_rf1, "RF2": rf_amp_rf2})
-
-    outer = 24
-    inner = 13
+    x = 14
+    outer = 24 - x
+    inner = 13 - x
     # DC electrode offsets (v)
     dc_offsets = {
         "DC1": outer,
@@ -998,8 +1111,8 @@ def main_2():
         "DC10": outer,
         "DC11": inner,
         "DC12": outer,
-        "RF1": 0.0,
-        "RF2": 0.0,
+        "RF1": -10,
+        "RF2": -10,
     }
 
     # dc_offsets = {
@@ -1014,10 +1127,11 @@ def main_2():
     #     "DC9": 1.0,
     #     "DC10": 2.0,
     # }
+
     for el, volts in dc_offsets.items():
         tv.set_amp(tv.dc_key, el, volts)
 
-    sim = Simulation("Inn2dTrap_2", tv)
+    sim = Simulation("InnTrapFine", tv)
 
     # Build fits, equilibrium, and single-ion modes
     sim._smoke_test_new_stack(n_ions=1, poly_deg=4)
@@ -1050,59 +1164,59 @@ def main_2():
         f"z=[{-constants.center_region_z_um}, {constants.center_region_z_um}]"
     )
 
-    # Plot plane cuts of the fitted polynomial at the center
-    span_x = constants.center_region_x_um * 1e-6
-    span_y = constants.center_region_y_um * 1e-6
-    span_z = constants.center_region_z_um * 1e-6
-    n = 120
+    # # Plot plane cuts of the fitted polynomial at the center
+    # span_x = constants.center_region_x_um * 1e-6
+    # span_y = constants.center_region_y_um * 1e-6
+    # span_z = constants.center_region_z_um * 1e-6
+    # n = 120
 
-    def _eval_grid(xg, yg, zg):
-        pts = np.c_[xg.ravel(), yg.ravel(), zg.ravel()]
-        vals = model.predict(poly.transform(pts))
-        return vals.reshape(xg.shape)
+    # def _eval_grid(xg, yg, zg):
+    #     pts = np.c_[xg.ravel(), yg.ravel(), zg.ravel()]
+    #     vals = model.predict(poly.transform(pts))
+    #     return vals.reshape(xg.shape)
 
-    x = np.linspace(-span_x, span_x, n)
-    y = np.linspace(-span_y, span_y, n)
-    z = np.linspace(-span_z, span_z, n)
+    # x = np.linspace(-span_x, span_x, n)
+    # y = np.linspace(-span_y, span_y, n)
+    # z = np.linspace(-span_z, span_z, n)
 
-    X_xy, Y_xy = np.meshgrid(x, y, indexing="xy")
-    Z0 = np.zeros_like(X_xy)
-    V_xy = _eval_grid(X_xy, Y_xy, Z0)
+    # X_xy, Y_xy = np.meshgrid(x, y, indexing="xy")
+    # Z0 = np.zeros_like(X_xy)
+    # V_xy = _eval_grid(X_xy, Y_xy, Z0)
 
-    X_xz, Z_xz = np.meshgrid(x, z, indexing="xy")
-    Y0 = np.zeros_like(X_xz)
-    V_xz = _eval_grid(X_xz, Y0, Z_xz)
+    # X_xz, Z_xz = np.meshgrid(x, z, indexing="xy")
+    # Y0 = np.zeros_like(X_xz)
+    # V_xz = _eval_grid(X_xz, Y0, Z_xz)
 
-    Y_yz, Z_yz = np.meshgrid(y, z, indexing="xy")
-    X0 = np.zeros_like(Y_yz)
-    V_yz = _eval_grid(X0, Y_yz, Z_yz)
+    # Y_yz, Z_yz = np.meshgrid(y, z, indexing="xy")
+    # X0 = np.zeros_like(Y_yz)
+    # V_yz = _eval_grid(X0, Y_yz, Z_yz)
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
-    im0 = axes[0].contourf(
-        X_xy * 1e6, Y_xy * 1e6, V_xy, levels=40, cmap="viridis"
-    )
-    axes[0].set_title("Static_TotalV fit @ z=0")
-    axes[0].set_xlabel("x (um)")
-    axes[0].set_ylabel("y (um)")
-    fig.colorbar(im0, ax=axes[0])
+    # fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
+    # im0 = axes[0].contourf(
+    #     X_xy * 1e6, Y_xy * 1e6, V_xy, levels=40, cmap="viridis"
+    # )
+    # axes[0].set_title("Static_TotalV fit @ z=0")
+    # axes[0].set_xlabel("x (um)")
+    # axes[0].set_ylabel("y (um)")
+    # fig.colorbar(im0, ax=axes[0])
 
-    im1 = axes[1].contourf(
-        X_xz * 1e6, Z_xz * 1e6, V_xz, levels=40, cmap="viridis"
-    )
-    axes[1].set_title("Static_TotalV fit @ y=0")
-    axes[1].set_xlabel("x (um)")
-    axes[1].set_ylabel("z (um)")
-    fig.colorbar(im1, ax=axes[1])
+    # im1 = axes[1].contourf(
+    #     X_xz * 1e6, Z_xz * 1e6, V_xz, levels=40, cmap="viridis"
+    # )
+    # axes[1].set_title("Static_TotalV fit @ y=0")
+    # axes[1].set_xlabel("x (um)")
+    # axes[1].set_ylabel("z (um)")
+    # fig.colorbar(im1, ax=axes[1])
 
-    im2 = axes[2].contourf(
-        Y_yz * 1e6, Z_yz * 1e6, V_yz, levels=40, cmap="viridis"
-    )
-    axes[2].set_title("Static_TotalV fit @ x=0")
-    axes[2].set_xlabel("y (um)")
-    axes[2].set_ylabel("z (um)")
-    fig.colorbar(im2, ax=axes[2])
+    # im2 = axes[2].contourf(
+    #     Y_yz * 1e6, Z_yz * 1e6, V_yz, levels=40, cmap="viridis"
+    # )
+    # axes[2].set_title("Static_TotalV fit @ x=0")
+    # axes[2].set_xlabel("y (um)")
+    # axes[2].set_ylabel("z (um)")
+    # fig.colorbar(im2, ax=axes[2])
 
-    plt.show()
+    # plt.show()
 
     # Print second derivatives at the origin (center) for Static_TotalV fit
     d2x, d2y, d2z = sim.evaluate_center_poly_2ndderivatives(0.0, 0.0, 0.0)
@@ -1118,14 +1232,76 @@ def main_2():
     eq_pos = sim.ion_equilibrium_positions.get(1)
     print("Single-ion equilibrium position (m):", eq_pos)
     
+    fig1 = sim.plot_total_voltage_plane_cuts()
+    fig = sim.plot_total_voltage_along_axes()
+    plt.show()
 
-    fig = sim.plot_total_voltage_along_axes()    
+    sim.plot_total_MM_magnitude()
+
+    Y, Z, E, x0 = sim.get_yz_plane_E_magnitude(
+        span_um=30.0,
+        x_center_m=0.0,
+        drive=sim.trapVariables.dc_key,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(5.2, 4.4), constrained_layout=True)
+    im = ax.contourf(Y * 1e6, Z * 1e6, E, levels=40, cmap="viridis")
+    ax.set_title(f"|E| @ x={x0 * 1e6:.3g} um (DC drive)")
+    ax.set_xlabel("y (um)")
+    ax.set_ylabel("z (um)")
+    fig.colorbar(im, ax=ax, label="|E| (V/m)")
     plt.show()
 
 
+def main_3():
+    """
+    Plot |E| on the yz plane (x≈0) over a 30x30 um window.
+    """
+    tv = Trapping_Vars()
 
+    # RF drive setup
+    rf_freq_hz = (43) * 10**6
+    rf_amp_rf1 = 515
+    rf_amp_rf2 = 515
+    tv.add_driving("RF", rf_freq_hz, 0.0, {"RF1": rf_amp_rf1, "RF2": rf_amp_rf2})
+    outer = 0
+    inner = 0
+    # DC electrode offsets (v)
+    dc_offsets = {
+        "DC1": outer,
+        "DC2": inner,
+        "DC3": outer,
+        "DC4": outer,
+        "DC5": inner,
+        "DC6": outer,
+        "DC7": outer,
+        "DC8": inner,
+        "DC9": outer,
+        "DC10": outer,
+        "DC11": inner,
+        "DC12": outer,
+        "RF1": 1,
+        "RF2": 1,
+    }
 
-    
+    for el, volts in dc_offsets.items():
+        tv.set_amp(tv.dc_key, el, volts)
+
+    sim = Simulation("InnTrapFine", tv)
+
+    Y, Z, E, x0 = sim.get_yz_plane_E_magnitude(
+        span_um=30.0,
+        x_center_m=0.0,
+        drive=sim.trapVariables.dc_key,
+    )
+
+    fig, ax = plt.subplots(1, 1, figsize=(5.2, 4.4), constrained_layout=True)
+    im = ax.contourf(Y * 1e6, Z * 1e6, E, levels=40, cmap="viridis")
+    ax.set_title(f"|E| @ x={x0 * 1e6:.3g} um (DC drive)")
+    ax.set_xlabel("y (um)")
+    ax.set_ylabel("z (um)")
+    fig.colorbar(im, ax=ax, label="|E| (V/m)")
+    plt.show()
 
 
 def main_1():
