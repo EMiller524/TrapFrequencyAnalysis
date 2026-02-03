@@ -260,6 +260,9 @@ with st.sidebar:
         generate_voltage_plots = st.checkbox(
             "Generate_Voltage_Visualization_Plots", value=False
         )
+        compute_resonant_couplings = st.checkbox(
+            "Compute resonant coupolings", value=False
+        )
 
         st.subheader("RF Drive")
         rf_freq = st.number_input(
@@ -747,13 +750,21 @@ def _scan_equilibrium_candidates(sim, nmf, num_ions):
 @st.cache_data(show_spinner=False)
 def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Core compute: build trap, run stack, collect outputs. Cached by cfg_key."""
+    t0 = time.time()
+    def _log_step(label: str, start_t: float):
+        dt = time.time() - start_t
+        print(f"[timing] {label}: {dt:.3f}s")
+        return time.time()
+
     Simulation, Trapping_Vars = _ensure_imports()  # may raise
+    t0 = _log_step("imports", t0)
 
     # Build Trapping_Vars and drives
     tv = Trapping_Vars()
     rf = tv.add_driving(
         "RF", cfg["rf_freq"], 0.0, {"RF1": cfg["rf_amp1"], "RF2": cfg["rf_amp2"]}
     )
+    t0 = _log_step("build drives", t0)
 
     # Apply manual DC electrode offsets on the DC drive first
     ea = tv.Var_dict[tv.dc_key]  # DC drive amplitudes
@@ -769,9 +780,11 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
                 ea.add_amplitude_volt(el, float(V))
             except Exception:
                 pass
+    t0 = _log_step("apply manual DC offsets", t0)
 
     if cfg.get("apply_twist_endcaps", True):
         tv.apply_dc_twist_endcaps(twist=cfg["twist"], endcaps=float(cfg["endcaps"]))
+    t0 = _log_step("apply twist/endcaps", t0)
 
     if cfg["use_extra"]:
         try:
@@ -784,28 +797,34 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
                 f"Extra drive map must be a JSON dict. Parse error: {e}"
             ) from e
         tv.add_driving("ExtraDrive1", cfg["extra_freq"], 0.0, extra_map)
+    t0 = _log_step("extra drive", t0)
 
     # Build Simulation and run base pipeline
     sim = Simulation(cfg["preset"], tv)
+    t0 = _log_step("init Simulation", t0)
 
-    # Entry point (adjust if your API differs)
-    if hasattr(sim, "_smoke_test_new_stack"):
-        sim._smoke_test_new_stack(
-            n_ions=cfg["num_ions"], poly_deg=cfg["poly_deg"]
-        )  # noqa: SLF001
-    elif hasattr(sim, "get_static_normal_modes_and_freq"):
+    # Core pipeline: equilibrium positions, then normal modes/frequencies
+    if hasattr(sim, "find_equilib_position_single"):
+        sim.find_equilib_position_single(
+            num_ions=cfg["num_ions"],
+            minimizertype=cfg["minimizer_type"],
+        )
+        if cfg["num_ions"] != 1:
+            sim.find_equilib_position_single(
+                num_ions=1,
+                minimizertype=cfg["minimizer_type"],
+            )
+    else:
+        raise RuntimeError("Simulation does not have find_equilib_position_single.")
+    t0 = _log_step("equilibrium positions", t0)
+
+    if hasattr(sim, "get_static_normal_modes_and_freq"):
         sim.get_static_normal_modes_and_freq(
             cfg["num_ions"], normalize=True, sort_by_freq=True
         )
     else:
-        raise RuntimeError(
-            "Simulation does not have _smoke_test_new_stack or get_static_normal_modes_and_freq."
-        )
-
-    sim.find_equilib_position_single(
-        num_ions=cfg["num_ions"],
-        minimizertype=cfg["minimizer_type"],
-    )
+        raise RuntimeError("Simulation does not have get_static_normal_modes_and_freq.")
+    t0 = _log_step("normal modes/freq", t0)
         
     # --- Static_TotalV plots ---
     plane_cuts_png = None
@@ -828,6 +847,7 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             plane_cuts_png = None
             along_axes_png = None
+        t0 = _log_step("static voltage plots", t0)
 
 
     # # Frequencies & modes
@@ -846,6 +866,7 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         sim.compute_principal_directions_from_one_ion()
         sim.populate_normalmodes_in_prinipledir_freq_labels()
         ppack = sim.principal_dir_normalmodes_andfrequencies.get(cfg["num_ions"])
+    t0 = _log_step("principal directions", t0)
 
     freqs = np.asarray(ppack.get("frequencies_Hz"), dtype=float)
     modes = np.asarray(ppack.get("modes"), dtype=float)  # principal basis (3N×3N)
@@ -870,23 +891,27 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
             secular_freqs_Hz = np.asarray(p1.get("frequencies_Hz"), dtype=float)
     except Exception:
         secular_freqs_Hz = None
+    t0 = _log_step("1-ion secular freqs", t0)
 
     # Equilibrium positions
     eq_positions = _eq_from_ion_equilibrium_positions(sim, cfg["num_ions"])
 
     # Resonances
-    drives_arg = None  # let the sim discover all non-DC drives
-    try:
-        out_res = sim.collect_resonant_couplings(
-            num_ions=cfg["num_ions"],
-            tol_Hz=cfg["tol_Hz"],
-            orders=tuple(cfg["orders"]),
-            drives=drives_arg,
-        )
-    except Exception as e:  # noqa: BLE001
-        raise RuntimeError(
-            "collect_resonant_couplings failed. Ensure StaticCoupolingMixin with this method is mixed into Simulation."
-        ) from e
+    out_res = None
+    if cfg.get("compute_resonant_couplings"):
+        drives_arg = None  # let the sim discover all non-DC drives
+        try:
+            out_res = sim.collect_resonant_couplings(
+                num_ions=cfg["num_ions"],
+                tol_Hz=cfg["tol_Hz"],
+                orders=tuple(cfg["orders"]),
+                drives=drives_arg,
+            )
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(
+                "collect_resonant_couplings failed. Ensure StaticCoupolingMixin with this method is mixed into Simulation."
+            ) from e
+        t0 = _log_step("resonant couplings", t0)
 
     return {
         "frequencies_Hz": freqs,
@@ -913,6 +938,7 @@ pending_cfg = {
     "minimizer_type": str(minimizer_type),
     "poly_deg": int(poly_deg),
     "generate_voltage_plots": bool(generate_voltage_plots),
+    "compute_resonant_couplings": bool(compute_resonant_couplings),
     "rf_freq": float(rf_freq),
     "rf_amp1": float(rf_amp1),
     "rf_amp2": float(rf_amp2),
