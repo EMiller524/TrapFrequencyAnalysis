@@ -223,23 +223,24 @@ st.caption(
 # Sidebar inputs (as a FORM so edits don't apply until 'Compute')
 # ------------------------------------------------------------
 with st.sidebar:
-    st.header("Project / Imports")
     with st.form("params"):
-        repo_path = st.text_input(
-            "Path to TrapFrequencyAnalysis repo (so we can import Simulation, Trapping_Vars)",
-            value=".",
-            help="Use an absolute path or a relative path from where you run `streamlit run app.py`.",
-        )
-        add_repo_to_sys_path = st.checkbox(
-            "Add the path above to PYTHONPATH", value=True
-        )
-
-        st.divider()
         st.header("Trap / Simulation Setup")
+        data_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Data"))
+        data_presets = []
+        if os.path.isdir(data_root):
+            data_presets = sorted(
+                [
+                    d
+                    for d in os.listdir(data_root)
+                    if os.path.isdir(os.path.join(data_root, d))
+                ]
+            )
+        preset_options = data_presets + ["Custom"]
+
         preset = st.selectbox(
             "Simulation preset (name passed to Simulation)",
-            options=["Simp58_101", "NISTMock", "Hyper_2", "twodTrap_1", "Custom"],
-            index=0,
+            options=preset_options,
+            index=0 if preset_options else 0,
         )
 
         if preset == "Custom":
@@ -296,21 +297,30 @@ with st.sidebar:
             help="Map electrode names to amplitudes (in volts). Example keys: DC1..DC12.",
         )
 
-        st.subheader("DC Geometry")
-        twist = st.number_input("apply_dc_twist_endcaps: twist", value=-2.0, step=0.01)
-        endcaps = st.number_input(
-            "apply_dc_twist_endcaps: endcaps",
-            min_value=0.0,
-            max_value=20.0,
-            value=3.0,
-            step=0.1,
-            format="%.3f",
-        )
+        with st.expander("DC Geometry (twist + endcaps)", expanded=False):
+            apply_twist_endcaps = st.checkbox(
+                "Enable twist/endcaps", value=True, key="apply_twist_endcaps"
+            )
+            twist = st.number_input(
+                "apply_dc_twist_endcaps: twist", value=0.0, step=0.01
+            )
+            endcaps = st.number_input(
+                "apply_dc_twist_endcaps: endcaps",
+                min_value=0.0,
+                max_value=20.0,
+                value=0.0,
+                step=0.1,
+                format="%.3f",
+            )
 
-        st.subheader("Manual DC offsets (added on DC drive before twist/endcaps)")
-        manual_dc_enabled = st.checkbox(
-            "Enable manual DC offsets", value=True, key="manual_dc_enabled"
-        )
+        if False:
+            with st.expander(
+                "Manual DC offsets (added on DC drive before twist/endcaps)",
+                expanded=False,
+            ):
+                manual_dc_enabled = st.checkbox(
+                    "Enable manual DC offsets", value=True, key="manual_dc_enabled"
+                )
 
         # # keep a stable dict in session state
         # if "manual_dc" not in st.session_state:
@@ -367,51 +377,165 @@ with st.sidebar:
                     "RF16",
                 ]
             }
+        # """
+        #     if manual_dc_enabled:
+        #         # first row: DC5  DC4  DC3  DC2  DC1  RF1
+        #         # Row 1: DC6 DC5 DC4 DC3 DC2 DC1 RF1
+        #         cols_top = st.columns(7)
+        #         order_top = ["DC6", "DC5", "DC4", "DC3", "DC2", "DC1", "RF1"]
+        #         for col, key in zip(cols_top, order_top):
+        #             st.session_state["manual_dc"][key] = col.number_input(
+        #                 f"{key} (V)",
+        #                 value=float(st.session_state["manual_dc"][key]),
+        #                 step=0.01,
+        #                 format="%.3f",
+        #                 key=f"manual_dc_{key}",
+        #             )
 
-        if manual_dc_enabled:
-            # first row: DC5  DC4  DC3  DC2  DC1  RF1
-            # Row 1: DC6 DC5 DC4 DC3 DC2 DC1 RF1
-            cols_top = st.columns(7)
-            order_top = ["DC6", "DC5", "DC4", "DC3", "DC2", "DC1", "RF1"]
-            for col, key in zip(cols_top, order_top):
-                st.session_state["manual_dc"][key] = col.number_input(
-                    f"{key} (V)",
-                    value=float(st.session_state["manual_dc"][key]),
-                    step=0.01,
-                    format="%.3f",
-                )
+        #         # Row 2: DC7 DC8 DC9 DC10 DC11 DC12 RF2
+        #         cols_bot = st.columns(7)
+        #         order_bot = ["DC7", "DC8", "DC9", "DC10", "DC11", "DC12", "RF2"]
+        #         for col, key in zip(cols_bot, order_bot):
+        #             st.session_state["manual_dc"][key] = col.number_input(
+        #                 f"{key} (V)",
+        #                 value=float(st.session_state["manual_dc"][key]),
+        #                 step=0.01,
+        #                 format="%.3f",
+        #                 key=f"manual_dc_{key}",
+        #             )
+        #         # third row: RF1 segments (left→right: RF11 RF12 RF13 RF14 RF15)
+        #         cols_rf1 = st.columns(5)
+        #         order_rf1 = ["RF11", "RF12", "RF13", "RF14", "RF15"]
+        #         for col, key in zip(cols_rf1, order_rf1):
+        #             st.session_state["manual_dc"][key] = col.number_input(
+        #                 f"{key} (V)",
+        #                 value=float(st.session_state["manual_dc"][key]),
+        #                 step=0.01,
+        #                 format="%.3f",
+        #                 key=f"manual_dc_{key}",
+        #             )
 
-            # Row 2: DC7 DC8 DC9 DC10 DC11 DC12 RF2
-            cols_bot = st.columns(7)
-            order_bot = ["DC7", "DC8", "DC9", "DC10", "DC11", "DC12", "RF2"]
-            for col, key in zip(cols_bot, order_bot):
-                st.session_state["manual_dc"][key] = col.number_input(
-                    f"{key} (V)",
-                    value=float(st.session_state["manual_dc"][key]),
-                    step=0.01,
-                    format="%.3f",
-                )
-            # third row: RF1 segments (left→right: RF11 RF12 RF13 RF14 RF15)
-            cols_rf1 = st.columns(5)
-            order_rf1 = ["RF11", "RF12", "RF13", "RF14", "RF15"]
-            for col, key in zip(cols_rf1, order_rf1):
-                st.session_state["manual_dc"][key] = col.number_input(
-                    f"{key} (V)",
-                    value=float(st.session_state["manual_dc"][key]),
-                    step=0.01,
-                    format="%.3f",
-                )
+        #         # fourth row: RF2 segments (left→right by your diagram: RF20 RF19 RF18 RF17 RF16)
+        #         cols_rf2 = st.columns(5)
+        #         order_rf2 = ["RF20", "RF19", "RF18", "RF17", "RF16"]
+        #         for col, key in zip(cols_rf2, order_rf2):
+        #             st.session_state["manual_dc"][key] = col.number_input(
+        #                 f"{key} (V)",
+        #                 value=float(st.session_state["manual_dc"][key]),
+        #                 step=0.01,
+        #                 format="%.3f",
+        #                 key=f"manual_dc_{key}",
+        #             )
 
-            # fourth row: RF2 segments (left→right by your diagram: RF20 RF19 RF18 RF17 RF16)
-            cols_rf2 = st.columns(5)
-            order_rf2 = ["RF20", "RF19", "RF18", "RF17", "RF16"]
-            for col, key in zip(cols_rf2, order_rf2):
-                st.session_state["manual_dc"][key] = col.number_input(
-                    f"{key} (V)",
-                    value=float(st.session_state["manual_dc"][key]),
-                    step=0.01,
-                    format="%.3f",
-                )
+        # """
+        with st.expander(
+            "Manual DC offsets (added on DC drive before twist/endcaps)",
+            expanded=False,
+        ):
+            manual_dc_enabled = st.checkbox(
+                "Enable manual DC offsets", value=True, key="manual_dc_enabled"
+            )
+
+            if "manual_dc" not in st.session_state:
+                st.session_state["manual_dc"] = {
+                    k: 0.0
+                    for k in [
+                        "DC1",
+                        "DC2",
+                        "DC3",
+                        "DC4",
+                        "DC5",
+                        "DC6",
+                        "DC7",
+                        "DC8",
+                        "DC9",
+                        "DC10",
+                        "DC11",
+                        "DC12",
+                        "RF1",
+                        "RF2",
+                        "RF11",
+                        "RF12",
+                        "RF13",
+                        "RF14",
+                        "RF15",
+                        "RF20",
+                        "RF19",
+                        "RF18",
+                        "RF17",
+                        "RF16",
+                    ]
+                }
+
+            if manual_dc_enabled:
+                cols_top = st.columns(7)
+                order_top = ["DC6", "DC5", "DC4", "DC3", "DC2", "DC1", "RF1"]
+                for col, key in zip(cols_top, order_top):
+                    st.session_state["manual_dc"][key] = col.number_input(
+                        f"{key} (V)",
+                        value=float(st.session_state["manual_dc"][key]),
+                        step=0.01,
+                        format="%.3f",
+                    )
+
+                cols_bot = st.columns(7)
+                order_bot = ["DC7", "DC8", "DC9", "DC10", "DC11", "DC12", "RF2"]
+                for col, key in zip(cols_bot, order_bot):
+                    st.session_state["manual_dc"][key] = col.number_input(
+                        f"{key} (V)",
+                        value=float(st.session_state["manual_dc"][key]),
+                        step=0.01,
+                        format="%.3f",
+                    )
+
+                cols_rf1 = st.columns(5)
+                order_rf1 = ["RF11", "RF12", "RF13", "RF14", "RF15"]
+                for col, key in zip(cols_rf1, order_rf1):
+                    st.session_state["manual_dc"][key] = col.number_input(
+                        f"{key} (V)",
+                        value=float(st.session_state["manual_dc"][key]),
+                        step=0.01,
+                        format="%.3f",
+                    )
+
+                cols_rf2 = st.columns(5)
+                order_rf2 = ["RF20", "RF19", "RF18", "RF17", "RF16"]
+                for col, key in zip(cols_rf2, order_rf2):
+                    st.session_state["manual_dc"][key] = col.number_input(
+                        f"{key} (V)",
+                        value=float(st.session_state["manual_dc"][key]),
+                        step=0.01,
+                        format="%.3f",
+                    )
+
+        with st.expander("2D DC layout manual offsets", expanded=False):
+            manual_dc_2d_enabled = st.checkbox(
+                "Enable 2D DC layout offsets", value=True, key="manual_dc_2d_enabled"
+            )
+
+            if "manual_dc_2d" not in st.session_state:
+                st.session_state["manual_dc_2d"] = {
+                    k: 0.0 for k in [f"DC{i}" for i in range(1, 21)] + ["RF1", "RF2"]
+                }
+
+            if manual_dc_2d_enabled:
+                rows = [
+                    [f"DC{i}" for i in range(1, 6)],
+                    [f"DC{i}" for i in range(6, 11)],
+                    [f"DC{i}" for i in range(11, 16)],
+                    [f"DC{i}" for i in range(16, 21)],
+                    ["RF1", "RF2"],
+                ]
+                for row in rows:
+                    cols = st.columns(len(row))
+                    for col, key in zip(cols, row):
+                        st.session_state["manual_dc_2d"][key] = col.number_input(
+                            f"{key} (V)",
+                            value=float(st.session_state["manual_dc_2d"][key]),
+                            step=0.01,
+                            format="%.3f",
+                            key=f"manual_dc_2d_{key}",
+                        )
 
         st.divider()
         st.header("Resonance Scan")
@@ -432,15 +556,10 @@ with st.sidebar:
 # ------------------------------------------------------------
 # Utilities: imports, hashing, and compute wrapper
 # ------------------------------------------------------------
-def _ensure_imports(repo_path: str, add_to_sys_path: bool = True):
+def _ensure_imports():
     """Ensure we can import Simulation and Trapping_Vars from the repo.
     Returns (Simulation, Trapping_Vars) types if successful; otherwise raises.
     """
-    if add_to_sys_path:
-        abs_repo = os.path.abspath(repo_path)
-        if abs_repo not in sys.path:
-            sys.path.insert(0, abs_repo)
-
     # Try a few plausible import paths, fall back gracefully.
     last_err = None
     for sim_mod in ("sim.simulation", "simulation", "Simulation", "simulation_fitting"):
@@ -453,9 +572,7 @@ def _ensure_imports(repo_path: str, add_to_sys_path: bool = True):
             Simulation = None
             continue
     if Simulation is None:
-        raise ImportError(
-            f"Could not import Simulation from repo at {repo_path}: {last_err}"
-        )
+        raise ImportError(f"Could not import Simulation: {last_err}")
 
     Trapping_Vars = None
     for vmod in (
@@ -625,9 +742,7 @@ def _scan_equilibrium_candidates(sim, nmf, num_ions):
 @st.cache_data(show_spinner=False)
 def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Core compute: build trap, run stack, collect outputs. Cached by cfg_key."""
-    Simulation, Trapping_Vars = _ensure_imports(
-        cfg["repo_path"], cfg["add_repo_to_sys_path"]
-    )  # may raise
+    Simulation, Trapping_Vars = _ensure_imports()  # may raise
 
     # Build Trapping_Vars and drives
     tv = Trapping_Vars()
@@ -636,17 +751,22 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     # Apply manual DC electrode offsets on the DC drive first
+    ea = tv.Var_dict[tv.dc_key]  # DC drive amplitudes
     if cfg.get("manual_dc_enabled"):
-        ea = tv.Var_dict[tv.dc_key]  # DC drive amplitudes
         for el, V in cfg["manual_dc_offsets"].items():
-            # add a DC offset (in volts) on that electrode for the DC drive
             try:
                 ea.add_amplitude_volt(el, float(V))
             except Exception:
-                # ignore keys that aren't present in the drive map
+                pass
+    if cfg.get("manual_dc_2d_enabled"):
+        for el, V in cfg["manual_dc_2d_offsets"].items():
+            try:
+                ea.add_amplitude_volt(el, float(V))
+            except Exception:
                 pass
 
-    tv.apply_dc_twist_endcaps(twist=cfg["twist"], endcaps=float(cfg["endcaps"]))
+    if cfg.get("apply_twist_endcaps", True):
+        tv.apply_dc_twist_endcaps(twist=cfg["twist"], endcaps=float(cfg["endcaps"]))
 
     if cfg["use_extra"]:
         try:
@@ -778,8 +898,6 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
 # Optional: warn if inputs changed since last compute
 # ------------------------------------------------------------
 pending_cfg = {
-    "repo_path": repo_path,
-    "add_repo_to_sys_path": add_repo_to_sys_path,
     "preset": preset,
     "num_ions": int(num_ions),
     "poly_deg": int(poly_deg),
@@ -792,12 +910,19 @@ pending_cfg = {
     "extra_map_json": extra_map_json,
     "twist": float(twist),
     "endcaps": float(endcaps),
+    "apply_twist_endcaps": bool(apply_twist_endcaps),
     "tol_Hz": float(tol_Hz),
     "orders": list(map(int, orders_pick)),
     "manual_dc_enabled": bool(manual_dc_enabled),
     "manual_dc_offsets": (
         {k: float(v) for k, v in st.session_state["manual_dc"].items()}
         if manual_dc_enabled
+        else {}
+    ),
+    "manual_dc_2d_enabled": bool(manual_dc_2d_enabled),
+    "manual_dc_2d_offsets": (
+        {k: float(v) for k, v in st.session_state["manual_dc_2d"].items()}
+        if manual_dc_2d_enabled
         else {}
     ),
 }

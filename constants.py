@@ -50,6 +50,13 @@ electrode_names = (
     "DC11",
     "DC12",
     "DC13",
+    "DC14",
+    "DC15",
+    "DC16",
+    "DC17",
+    "DC18",
+    "DC19",
+    "DC20",
     "RF1",
     "RF2",
     "RF11",
@@ -75,7 +82,7 @@ RF2_SEGMENTS = (
 )  # -X -> +X (note: geometry shows 20..16 left->right)
 RF_SEGMENTS = RF1_SEGMENTS + RF2_SEGMENTS
 
-DC_ELECTRODES = tuple(f"DC{i}" for i in range(1, 11))
+DC_ELECTRODES = tuple(f"DC{i}" for i in range(1, 21))
 RF_ELECTRODES = ("RF1", "RF2") + RF_SEGMENTS
 
 ## used in both directions
