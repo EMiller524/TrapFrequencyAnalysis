@@ -715,7 +715,9 @@ class Umin_ReqMixin:
         eq, u = self.find_U_minimum(num_ions, U_eq)
         return eq
 
-    def find_equilib_position_single(self, num_ions):
+    def find_equilib_position_single_normal(self, num_ions):
+        for i in range(5):
+            print("HI there the normal eq position thing is being run, are you sure it should be?")
         if num_ions not in self.ion_equilibrium_positions:
             print(f"Finding Umin for {num_ions} ions")
             eq_dimless = self.find_U_minimum_robust(num_ions)  # shape (n,3), unitless
@@ -723,7 +725,7 @@ class Umin_ReqMixin:
             self.ion_equilibrium_positions[num_ions] = eq_SI
 
     # Used
-    def find_all_equilib_positions(self):
+    def find_all_equilib_positions_normal(self):
         """
         Finds the Umin for all ions.
         """
@@ -737,6 +739,70 @@ class Umin_ReqMixin:
             #     "eq / L0 (dimensionless):",
             #     eq_dimless,
             # )
+
+    def find_equilib_position_single_initialguess(self, num_ions):
+        eq_dimless = np.array(constants.ion_locations_intial_guess[num_ions])
+        eq_SI = eq_dimless * constants.length_harmonic_approximation
+        self.ion_equilibrium_positions[num_ions] = eq_SI
+        return eq_dimless
+
+    def find_all_equilib_positions_initialguess(self):
+        """
+        Returns initial-guess positions for all ion counts.
+        """
+        out = {}
+        for num_ions in range(1, constants.max_ion_in_chain + 1):
+            eq_dimless = np.array(constants.ion_locations_intial_guess[num_ions])
+            eq_SI = eq_dimless * constants.length_harmonic_approximation
+            self.ion_equilibrium_positions[num_ions] = eq_SI
+            out[num_ions] = eq_dimless
+        return out
+
+    def find_equilib_position_single_dummy1(self, num_ions):
+        return self.find_equilib_position_single_initialguess(num_ions)
+
+    def find_all_equilib_positions_dummy1(self):
+        return self.find_all_equilib_positions_initialguess()
+
+    def find_equilib_position_single_dummy2(self, num_ions):
+        return self.find_equilib_position_single_initialguess(num_ions)
+
+    def find_all_equilib_positions_dummy2(self):
+        return self.find_all_equilib_positions_initialguess()
+
+    def find_equilib_position_single_dummy3(self, num_ions):
+        return self.find_equilib_position_single_initialguess(num_ions)
+
+    def find_all_equilib_positions_dummy3(self):
+        return self.find_all_equilib_positions_initialguess()
+
+    def find_equilib_position_single(self, num_ions, minimizertype="Normal"):
+        if minimizertype == "Normal":
+            return self.find_equilib_position_single_normal(num_ions)
+        if minimizertype == "InitGuess":
+            return self.find_equilib_position_single_initialguess(num_ions)
+        if minimizertype == "Dummy1":
+            return self.find_equilib_position_single_dummy1(num_ions)
+        if minimizertype == "Dummy2":
+            return self.find_equilib_position_single_dummy2(num_ions)
+        if minimizertype == "Dummy3":
+            return self.find_equilib_position_single_dummy3(num_ions)
+        else:
+            return None
+
+    def find_all_equilib_positions(self, minimizertype="Normal"):
+        if minimizertype == "Normal":
+            return self.find_all_equilib_positions_normal()
+        if minimizertype == "InitGuess":
+            return self.find_all_equilib_positions_initialguess()
+        if minimizertype == "Dummy1":
+            return self.find_all_equilib_positions_dummy1()
+        if minimizertype == "Dummy2":
+            return self.find_all_equilib_positions_dummy2()
+        if minimizertype == "Dummy3":
+            return self.find_all_equilib_positions_dummy3()
+        else:
+            return None
 
 
 # #### POSIBLY UNUSED OR OLD ############################

@@ -249,6 +249,11 @@ with st.sidebar:
         num_ions = st.number_input(
             "Number of ions", min_value=1, max_value=60, value=3, step=1
         )
+        minimizer_type = st.selectbox(
+            "Equilibrium minimizer",
+            options=["Normal", "InitGuess", "Dummy1", "Dummy2", "Dummy3"],
+            index=0,
+        )
         poly_deg = st.selectbox(
             "Polynomial degree for fits", options=[2, 3, 4, 5, 6], index=2
         )
@@ -796,6 +801,11 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError(
             "Simulation does not have _smoke_test_new_stack or get_static_normal_modes_and_freq."
         )
+
+    sim.find_equilib_position_single(
+        num_ions=cfg["num_ions"],
+        minimizertype=cfg["minimizer_type"],
+    )
         
     # --- Static_TotalV plots ---
     plane_cuts_png = None
@@ -900,6 +910,7 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
 pending_cfg = {
     "preset": preset,
     "num_ions": int(num_ions),
+    "minimizer_type": str(minimizer_type),
     "poly_deg": int(poly_deg),
     "generate_voltage_plots": bool(generate_voltage_plots),
     "rf_freq": float(rf_freq),
