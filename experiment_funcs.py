@@ -5,8 +5,8 @@ This file contains functions to run experiments using simulation
 import math
 
 import numpy as np
-from simulation import Simulation
-import electrode_vars as evars
+from sim.simulation import Simulation
+import electrode_vars_old as evars
 import matplotlib.pyplot as plt
 import constants
 
@@ -35,8 +35,8 @@ def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop=1, step_size=0.1)
             )
         )
 
-        freqs, eigendir, minreal, min_snap, coeffs = test_sim.get_principal_freq_at_min(
-            getall=True
+        freqs, eigendir, minreal, min_snap, coeffs = (
+            test_sim.get_principal_freq_at_min_old(getall=True)
         )
 
         x_pos.append(minreal[0])
@@ -50,8 +50,8 @@ def recreate_old_data(rfamp, rffreq, twist, endcaps, push_stop=1, step_size=0.1)
             )
         )
 
-        freqs, eigendir, minreal, min_snap, coeffs = test_sim.get_principal_freq_at_min(
-            getall=True
+        freqs, eigendir, minreal, min_snap, coeffs = (
+            test_sim.get_principal_freq_at_min_old(getall=True)
         )
 
         x_pos.append(minreal[0])
@@ -102,14 +102,16 @@ def test_against_expected_once(rfamp, rffreq, simulation=Simulation):
     simulation.change_electrode_variables(
         evars.get_electrodvars_w_twist(rfamp, rffreq, 0, 0)
     )
-    freqs = simulation.get_principal_freq_at_min(getall=False, fitdeg=4, look_around=5)[
-        0
-    ]
+    freqs = simulation.get_principal_freq_at_min_old(
+        getall=False, fitdeg=4, look_around=5
+    )[0]
     actual = (freqs[1] + freqs[2]) / 2
     return 100 * abs(expected - actual) / expected
 
 
-def test_against_expected_many(rfamp_min, rfamp_max, rffreq_min, rffreq_max, breakpoints=5, simulation="Hyper_2"):
+def test_against_expected_many(
+    rfamp_min, rfamp_max, rffreq_min, rffreq_max, breakpoints=5, simulation="Hyper_2"
+):
     """
     Perform multiple tests against expected values for a range of RF amplitudes and frequencies.
 

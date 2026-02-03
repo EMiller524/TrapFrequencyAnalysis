@@ -15,7 +15,66 @@ import datetime
 import time
 import csv
 import constants
-import electrode_vars as evars
+# import electrode_vars_old as evars
+
+
+def _read_header_lines(file_path, max_lines=20):
+    header_lines = []
+    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+        for _ in range(max_lines):
+            line = f.readline()
+            if not line:
+                break
+            header_lines.append(line.strip())
+    return header_lines
+
+
+def _normalize_length_unit(unit):
+    unit = unit.strip().lower()
+    unit = unit.replace("meters", "m").replace("meter", "m")
+    unit = unit.replace("millimeters", "mm").replace("millimeter", "mm")
+    unit = unit.replace("centimeters", "cm").replace("centimeter", "cm")
+    unit = unit.replace("microns", "um").replace("micron", "um")
+    unit = unit.replace("nanometers", "nm").replace("nanometer", "nm")
+    return unit
+
+
+def _length_unit_scale_to_m(unit):
+    unit = _normalize_length_unit(unit)
+    scale_map = {
+        "m": 1.0,
+        "mm": 1e-3,
+        "cm": 1e-2,
+        "um": 1e-6,
+        "nm": 1e-9,
+    }
+    return scale_map.get(unit)
+
+
+def _infer_length_unit(header_lines):
+    # Look for explicit x/y/z unit markers like "x (mm)" or "x [mm]"
+    axis_units = {}
+    axis_pattern = re.compile(r"\b([xyz])\s*[\[(]\s*([a-zA-Z]+)\s*[\])]")
+    for line in header_lines:
+        for axis, unit in axis_pattern.findall(line):
+            axis_units[axis.lower()] = unit
+
+    if axis_units:
+        units = {axis: _normalize_length_unit(u) for axis, u in axis_units.items()}
+        unique_units = set(units.values())
+        if len(unique_units) == 1:
+            return unique_units.pop(), False
+        print(f"Warning: mixed axis units found in header: {units}")
+        return units.get("x", "mm"), True
+
+    # Look for a general "length unit: mm" style line
+    generic_pattern = re.compile(r"(length|coordinate)\s*unit[s]?\s*[:=]\s*([a-zA-Z]+)")
+    for line in header_lines:
+        match = generic_pattern.search(line.lower())
+        if match:
+            return _normalize_length_unit(match.group(2)), False
+
+    return "mm", True
 
 
 def extract_raw_trap_sim_data(file_path):
@@ -33,10 +92,32 @@ def extract_raw_trap_sim_data(file_path):
     # extract the last bit of the file path to use as the name of the dataframe
     blade_name = os.path.basename(file_path).split(".")[0].split("_")[0]
 
-    # extract the simulation from the file path, meaing the "simplified1" or "simplified2" part of the file path
-    simulation = file_path.split("\\")[4]
+    # extract the simulation from the file path, meaning the dataset folder name under Data
+    path_parts = os.path.normpath(file_path).split(os.sep)
+    if "Data" in path_parts:
+        data_idx = path_parts.index("Data")
+        simulation = path_parts[data_idx + 1] if data_idx + 1 < len(path_parts) else ""
+    else:
+        simulation = os.path.basename(os.path.dirname(file_path))
 
     print("Extracting data from " + blade_name + " in " + simulation + " simulation")
+
+    header_lines = _read_header_lines(file_path)
+    length_unit, assumed = _infer_length_unit(header_lines)
+    print(length_unit)
+    length_scale = _length_unit_scale_to_m(length_unit)
+    if length_scale is None:
+        print(
+            f"Warning: Unrecognized length unit '{length_unit}'. Assuming mm."
+        )
+        length_unit = "mm"
+        length_scale = 1e-3
+        assumed = True
+
+    if assumed:
+        print(
+            f"Warning: Could not determine length unit from header. Assuming {length_unit}."
+        )
 
     # Read the file, skipping the metadata lines
     df = pd.read_csv(file_path, sep="\s+", skiprows=9)
@@ -52,9 +133,9 @@ def extract_raw_trap_sim_data(file_path):
         "Ez",
     ]
 
-    # Now we iterated through x,y,z and divide eveery value by 1000 to convert it from mm to m
+    # Convert x,y,z to meters using the detected unit
     for column in ["x", "y", "z"]:
-        df[column] = df[column] / 1000
+        df[column] = df[column] * length_scale
 
     # #Now convert the Ex,Ey,Ez to standard SI units
     # for column in ["Ex", "Ey", "Ez"]:
@@ -88,6 +169,8 @@ def extract_raw_trap_sim_data(file_path):
 
     # add the dimension as a tupple to the dataframe under the name "dim"
     df.attrs["dim"] = dimension
+    df.attrs["length_unit"] = length_unit
+    df.attrs["length_unit_scale_to_m"] = length_scale
 
     df.to_pickle(
         "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\"
@@ -136,6 +219,7 @@ def make_simulation_dataframe(folder_path):
     # print(f"csv files: {csv_files}")
     # for each csv file, read it and append it to the dataframe
     names_of_electodes = []  # to keep track of electrode names for later use
+    length_units = {}
     for csv_file in csv_files:
         # Extract the electrode name from the file name
         electrode_name = os.path.basename(csv_file).split("_")[
@@ -145,6 +229,9 @@ def make_simulation_dataframe(folder_path):
         # read the csv file
         file_path = os.path.join(folder_path, csv_file)
         temp_df = pd.read_pickle(file_path)
+
+        if temp_df.attrs.get("length_unit") is not None:
+            length_units[electrode_name] = temp_df.attrs.get("length_unit")
 
         # Rename the columns for V, Ex, Ey, Ez
         temp_df.rename(
@@ -171,8 +258,13 @@ def make_simulation_dataframe(folder_path):
 
     # Add custom attributes using the attrs property
     df.attrs["electrode_names"] = names_of_electodes
-    df.attrs["electrode_vars"] = evars.Electrode_vars()
+    # df.attrs["electrode_vars"] = evars.Electrode_vars()
     df.attrs["name"] = os.path.basename(folder_path)
+    if length_units:
+        unique_units = set(length_units.values())
+        if len(unique_units) > 1:
+            print(f"Warning: Mixed length units detected: {length_units}")
+        df.attrs["length_unit"] = next(iter(unique_units))
 
     # Save the combined dataframe as a pickle file
     df.to_pickle(os.path.join(folder_path, "combined_dataframe.csv"))
@@ -182,7 +274,6 @@ def make_simulation_dataframe(folder_path):
     print(f"Dataframe shape: {df.shape}")
 
     return df
-
 
 
 # *#*#*# Just for testing #*#*#*#
@@ -257,4 +348,9 @@ def get_all_from_point(dataframe, x, y, z):
 def get_set_of_points(dataframe):
     return set(zip(dataframe["x"], dataframe["y"], dataframe["z"]))
 
+
 # *#*#*##*#*#*##*#*#*##*#*#*##*#*#*#
+
+if __name__ == "__main__":
+    print("running")
+    make_simulation_dataframe(r"Data\twodTrap_1")
