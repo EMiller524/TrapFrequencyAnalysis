@@ -42,7 +42,7 @@ class VoltageFitsMixin:
         region_y_high=10,
         region_z_low=-10,
         region_z_high=10,
-        max_pnts=1e6,
+        max_pnts=3e6,
         polyfit=4,
     ):
 
@@ -71,7 +71,7 @@ class VoltageFitsMixin:
         max_pnts_int = int(max_pnts)
         if len(cutout) > max_pnts_int:
             cutout = cutout.sample(n=max_pnts_int, random_state=1)
-            print("len(cutout) was cut to:", len(cutout))
+            print("len(cutout) was cut to:", len(cutout), " there were originally:", len(df))
         # print("len(cutout):", len(cutout))
         if len(cutout) == 0:
             raise ValueError("No points in region after filtering/sampling.")

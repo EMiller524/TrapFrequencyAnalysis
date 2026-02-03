@@ -30,7 +30,7 @@ import numpy as np
 INCLUDE_ALL_RF_PSEUDOPOTENTIALS = False  # False keeps current behavior
 
 # ion_mass = 2.885 * (10 ** (-25))  # kg Yb+
-ion_mass = 6.642065* (10 ** (-26))  # kg Ca40
+ion_mass = 6.642065 * (10 ** (-26))  # kg Ca40
 # ion_mass = 1.5e-26  # kg be
 ion_charge = 1.60217662 * (10 ** (-19))  # C
 epsilon_0 = 8.854187817e-12  # F/m
@@ -94,7 +94,7 @@ RF_ELECTRODES = ("RF1", "RF2") + RF_SEGMENTS
 
 ## 2 D ##
 center_region_x_um = 133  # microns
-center_region_y_um = 30  # microns
+center_region_y_um = 100  # microns
 center_region_z_um = 100
 
 
@@ -181,6 +181,7 @@ max_ion_in_chain = 100
 
 coulomb_constant = 8.9875517873681764 * (10**9)  # N m^2 / C^2
 
+
 # Should be a flat list/array of length 3n
 class _IonInitialGuessDict(dict):
     def __missing__(self, num_ions):
@@ -192,9 +193,7 @@ class _IonInitialGuessDict(dict):
             return positions
 
         total_length_m = (num_ions / 2.0) * 1e-6
-        x_vals_m = np.linspace(
-            -total_length_m / 2.0, total_length_m / 2.0, num_ions
-        )
+        x_vals_m = np.linspace(-total_length_m / 2.0, total_length_m / 2.0, num_ions)
         positions = [
             [float(x / length_harmonic_approximation), 0.0, 0.0] for x in x_vals_m
         ]

@@ -263,6 +263,9 @@ with st.sidebar:
         compute_resonant_couplings = st.checkbox(
             "Compute resonant coupolings", value=False
         )
+        generate_mm_plot = st.checkbox(
+            "Generate_Micromotion_Plot", value=False
+        )
 
         st.subheader("RF Drive")
         rf_freq = st.number_input(
@@ -521,6 +524,23 @@ with st.sidebar:
                 "Enable 2D DC layout offsets", value=True, key="manual_dc_2d_enabled"
             )
 
+            st.subheader("2D DC layout presets")
+            dc_3e_endcaps = st.number_input(
+                "3E endcaps (V)", value=0.0, step=0.01, format="%.3f"
+            )
+            dc_3e_center = st.number_input(
+                "3E center (V)", value=0.0, step=0.01, format="%.3f"
+            )
+            dc_5e_endcaps = st.number_input(
+                "5E endcaps (V)", value=0.0, step=0.01, format="%.3f"
+            )
+            dc_5e_mid = st.number_input(
+                "5E mid (V)", value=0.0, step=0.01, format="%.3f"
+            )
+            dc_5e_center = st.number_input(
+                "5E center (V)", value=0.0, step=0.01, format="%.3f"
+            )
+
             if "manual_dc_2d" not in st.session_state:
                 st.session_state["manual_dc_2d"] = {
                     k: 0.0 for k in [f"DC{i}" for i in range(1, 21)] + ["RF1", "RF2"]
@@ -768,6 +788,12 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
 
     # Apply manual DC electrode offsets on the DC drive first
     ea = tv.Var_dict[tv.dc_key]  # DC drive amplitudes
+    if cfg.get("dc_3e_endcaps") or cfg.get("dc_3e_center"):
+        tv.add_endcaps_center_3E(cfg["dc_3e_endcaps"], cfg["dc_3e_center"])
+    if cfg.get("dc_5e_endcaps") or cfg.get("dc_5e_mid") or cfg.get("dc_5e_center"):
+        tv.add_endcaps_mid_center_5E(
+            cfg["dc_5e_endcaps"], cfg["dc_5e_mid"], cfg["dc_5e_center"]
+        )
     if cfg.get("manual_dc_enabled"):
         for el, V in cfg["manual_dc_offsets"].items():
             try:
@@ -829,6 +855,7 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     # --- Static_TotalV plots ---
     plane_cuts_png = None
     along_axes_png = None
+    mm_plot_png = None
     if cfg.get("generate_voltage_plots"):
         try:
             fig_plane = sim.plot_total_voltage_plane_cuts(
@@ -848,6 +875,19 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
             plane_cuts_png = None
             along_axes_png = None
         t0 = _log_step("static voltage plots", t0)
+
+    if cfg.get("generate_mm_plot"):
+        try:
+            fig_mm = sim.plot_total_MM_magnitude()
+            mm_plot_png = fig_to_png_bytes(fig_mm)
+            try:
+                import matplotlib.pyplot as plt
+                plt.close(fig_mm)
+            except Exception:
+                pass
+        except Exception:
+            mm_plot_png = None
+        t0 = _log_step("micromotion plot", t0)
 
 
     # # Frequencies & modes
@@ -925,6 +965,8 @@ def compute_result(cfg_key: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
         "static_totalV_plane_cuts_png": plane_cuts_png,
         "static_totalV_along_axes_png": along_axes_png,
         "generate_voltage_plots": bool(cfg.get("generate_voltage_plots")),
+        "mm_plot_png": mm_plot_png,
+        "generate_mm_plot": bool(cfg.get("generate_mm_plot")),
     
     }
 
@@ -939,6 +981,7 @@ pending_cfg = {
     "poly_deg": int(poly_deg),
     "generate_voltage_plots": bool(generate_voltage_plots),
     "compute_resonant_couplings": bool(compute_resonant_couplings),
+    "generate_mm_plot": bool(generate_mm_plot),
     "rf_freq": float(rf_freq),
     "rf_amp1": float(rf_amp1),
     "rf_amp2": float(rf_amp2),
@@ -962,6 +1005,11 @@ pending_cfg = {
         if manual_dc_2d_enabled
         else {}
     ),
+    "dc_3e_endcaps": float(dc_3e_endcaps),
+    "dc_3e_center": float(dc_3e_center),
+    "dc_5e_endcaps": float(dc_5e_endcaps),
+    "dc_5e_mid": float(dc_5e_mid),
+    "dc_5e_center": float(dc_5e_center),
 }
 
 # ------------------------------------------------------------
@@ -1024,6 +1072,12 @@ if res is not None and res.get("generate_voltage_plots"):
     if png_axes:
         st.subheader("Static_TotalV along axes")
         st.image(png_axes, use_column_width=True)
+
+if res is not None and res.get("generate_mm_plot"):
+    png_mm = res.get("mm_plot_png")
+    if png_mm:
+        st.subheader("Micromotion magnitude")
+        st.image(png_mm, use_column_width=True)
 
 
 

@@ -259,6 +259,43 @@ class Trapping_Vars:
             ea.add_amplitude_volt(el, endcaps)
         self._update_pickoff_all()
 
+    def add_endcaps_center_3E(self, endcaps: float, center: float) -> None:
+        """
+        Add endcaps to DC1,3,4,6,7,9,10,12 and center to DC2,5,8,11 on the DC drive.
+        """
+        ea = self.Var_dict[self.dc_key]
+        endcap_electrodes = ["DC1", "DC3", "DC4", "DC6", "DC7", "DC9", "DC10", "DC12"]
+        center_electrodes = ["DC2", "DC5", "DC8", "DC11"]
+        for el in endcap_electrodes:
+            if el in ea.amplitudes:
+                ea.add_amplitude_volt(el, endcaps)
+        for el in center_electrodes:
+            if el in ea.amplitudes:
+                ea.add_amplitude_volt(el, center)
+        self._update_pickoff_all()
+
+    def add_endcaps_mid_center_5E(
+        self, endcaps: float, mid: float, center: float
+    ) -> None:
+        """
+        Add endcaps to DC1,5,6,10,11,15,16,20; mid to DC3,8,13,18;
+        center to DC2,4,7,9,12,14,17,19 on the DC drive.
+        """
+        ea = self.Var_dict[self.dc_key]
+        endcap_electrodes = ["DC1", "DC5", "DC6", "DC10", "DC11", "DC15", "DC16", "DC20"]
+        mid_electrodes = ["DC3", "DC8", "DC13", "DC18"]
+        center_electrodes = ["DC2", "DC4", "DC7", "DC9", "DC12", "DC14", "DC17", "DC19"]
+        for el in endcap_electrodes:
+            if el in ea.amplitudes:
+                ea.add_amplitude_volt(el, endcaps)
+        for el in mid_electrodes:
+            if el in ea.amplitudes:
+                ea.add_amplitude_volt(el, mid)
+        for el in center_electrodes:
+            if el in ea.amplitudes:
+                ea.add_amplitude_volt(el, center)
+        self._update_pickoff_all()
+
     def apply_dc_twist_endcaps(
         self,
         twist: float,

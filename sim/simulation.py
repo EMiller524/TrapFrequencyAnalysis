@@ -254,6 +254,20 @@ class Simulation(
         self.trapVariables = new_vars
         self.update_total_voltage_columns()
 
+    def clear_held_results(self):
+        self.center_fits = {}  # Placeholder for the center fit model
+        self.ion_equilibrium_positions = {}
+        self.ion_eigenvectors = {}
+        self.ion_eigenvalues = {}
+        self.normal_modes_and_frequencies = {}
+        self.driven_g_0_2_couplings = {}
+        self.driven_g_0_3_couplings = {}
+        self.inherent_g_0_3_couplings = {}
+        self.inherent_g_0_4_couplings = {}
+
+        self.principal_dirs = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        self.principal_dir_normalmodes_andfrequencies = {}
+
     def get_total_E_components(self, drive: Optional[DriveKey] = None):
         """
         Return total (Ex, Ey, Ez) across all electrodes for a given drive.
@@ -341,7 +355,7 @@ class Simulation(
         drive = max(rf_drives, key=lambda d: d.f_hz)
 
         Y, Z, E, x0 = self.get_yz_plane_E_magnitude(
-            span_um=20.0,
+            span_um=60.0,
             x_center_m=0.0,
             drive=drive,
         )
@@ -1091,8 +1105,8 @@ def main_2():
 
     # RF drive setup
     rf_freq_hz = (43) * 10**6
-    rf_amp_rf1 = 500
-    rf_amp_rf2 = 500
+    rf_amp_rf1 = 515
+    rf_amp_rf2 = 515
     tv.add_driving("RF", rf_freq_hz, 0.0, {"RF1": rf_amp_rf1, "RF2": rf_amp_rf2})
     x = 14
     outer = 24 - x
