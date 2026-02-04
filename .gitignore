@@ -1,4 +1,4 @@
-*.txt
+Data/**/*.txt
 *.csv
 *.pdf
 \Repts

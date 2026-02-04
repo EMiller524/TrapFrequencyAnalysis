@@ -15,7 +15,7 @@ import constants
 from scipy.optimize import minimize, BFGS, basinhopping
 from scipy.optimize import check_grad
 from itertools import product
-from numba import njit, prange
+# from numba import njit, prange
 
 
 class Umin_ReqMixin:

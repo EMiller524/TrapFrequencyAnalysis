@@ -67,6 +67,7 @@ def get_kappas_from_secularFreqs_amp_rffreq(freq, amp, secular_freqs):
     Returns:
         list[float]: [kappa_y, kappa_z].
     """
+    print(secular_freqs)
     out = []
     for secular_freq in secular_freqs:
         if secular_freq is None or np.isnan(secular_freq):
@@ -77,7 +78,7 @@ def get_kappas_from_secularFreqs_amp_rffreq(freq, amp, secular_freqs):
             * math.sqrt(2)
             * (constants.ion_mass / constants.ion_charge)
             * ((2 * math.pi) * freq / (amp))
-            * (0.0004**2)
+            * (0.00025**2)
         )
         out.append(kappa)
     return out
