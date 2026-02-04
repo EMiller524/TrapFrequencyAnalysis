@@ -173,7 +173,7 @@ def extract_raw_trap_sim_data(file_path):
     df.attrs["length_unit_scale_to_m"] = length_scale
 
     df.to_pickle(
-        "C:\\GitHub\\TrapFrequencyAnalysis\\Data\\"
+        "C:\\Users\\TrappedIonRiceDell2\\Documents\\GitHub\\TrapFrequencyAnalysis\\Data\\"
         + simulation
         + "\\"
         + blade_name
